@@ -1,0 +1,128 @@
+<Window x:Class="VoiceRecorder.ApiKeySettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:VoiceRecorder"
+        Title="API設定" Height="650" Width="600">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/> <!-- Title -->
+            <RowDefinition Height="Auto"/> <!-- Azure Speech Key -->
+            <RowDefinition Height="Auto"/> <!-- Azure OpenAI API Key -->
+            <RowDefinition Height="Auto"/> <!-- Azure OpenAI Endpoint -->
+            <RowDefinition Height="Auto"/> <!-- Azure OpenAI Deployment Name -->
+            <RowDefinition Height="Auto"/> <!-- Azure Functions Key -->
+            <RowDefinition Height="Auto"/> <!-- Google Spreadsheet ID -->
+            <RowDefinition Height="Auto"/> <!-- Google Sheet Name -->
+            <RowDefinition Height="Auto"/> <!-- PC Name -->
+            <RowDefinition Height="Auto"/> <!-- Hotkey Modifier Selection -->
+            <RowDefinition Height="Auto"/> <!-- Audio File Save Setting -->
+            <RowDefinition Height="Auto"/> <!-- Performance Mode -->
+            <RowDefinition Height="*"/>    <!-- Spacer -->
+            <RowDefinition Height="Auto"/> <!-- Buttons -->
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <TextBlock Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2"
+                   Text="API設定"
+                   FontSize="20" FontWeight="Bold"
+                   Margin="10" HorizontalAlignment="Center"/>
+
+        <TextBlock Grid.Row="1" Grid.Column="0"
+                   Text="Azure Speech Key:"
+                   VerticalAlignment="Center" Margin="10"/>
+        <PasswordBox Grid.Row="1" Grid.Column="1"
+                     Name="AzureSpeechKeyPasswordBox"
+                     Margin="10" VerticalAlignment="Center"/>
+
+        <TextBlock Grid.Row="2" Grid.Column="0"
+                   Text="Azure OpenAI API Key:"
+                   VerticalAlignment="Center" Margin="10"/>
+        <PasswordBox Grid.Row="2" Grid.Column="1"
+                     Name="AzureOpenAIKeyPasswordBox"
+                     Margin="10" VerticalAlignment="Center"/>
+
+        <TextBlock Grid.Row="3" Grid.Column="0"
+                   Text="Azure OpenAI Endpoint:"
+                   VerticalAlignment="Center" Margin="10"/>
+        <TextBox Grid.Row="3" Grid.Column="1"
+                 Name="AzureOpenAIEndpointTextBox"
+                 Margin="10" VerticalAlignment="Center"/>
+
+        <TextBlock Grid.Row="4" Grid.Column="0"
+                   Text="Azure OpenAI Deployment Name:"
+                   VerticalAlignment="Center" Margin="10"/>
+        <TextBox Grid.Row="4" Grid.Column="1"
+                 Name="AzureOpenAIDeploymentNameTextBox"
+                 Margin="10" VerticalAlignment="Center"/>
+
+       <TextBlock Grid.Row="5" Grid.Column="0"
+                  Text="Azure Functions Key:"
+                  VerticalAlignment="Center" Margin="10"/>
+       <PasswordBox Grid.Row="5" Grid.Column="1"
+                    Name="AzureFunctionsKeyPasswordBox"
+                    Margin="10" VerticalAlignment="Center"/>
+
+       <TextBlock Grid.Row="6" Grid.Column="0"
+                  Text="Google Spreadsheet ID:"
+                  VerticalAlignment="Center" Margin="10"/>
+       <TextBox Grid.Row="6" Grid.Column="1"
+                Name="GoogleSpreadsheetIdTextBox"
+                Margin="10" VerticalAlignment="Center"/>
+
+       <TextBlock Grid.Row="7" Grid.Column="0"
+                  Text="Google Sheet Name:"
+                  VerticalAlignment="Center" Margin="10"/>
+       <TextBox Grid.Row="7" Grid.Column="1"
+                Name="GoogleSheetNameTextBox"
+                Margin="10" VerticalAlignment="Center"/>
+
+       <TextBlock Grid.Row="8" Grid.Column="0"
+                  Text="端末名:"
+                  VerticalAlignment="Center" Margin="10"/>
+       <TextBox Grid.Row="8" Grid.Column="1"
+                Name="PcNameTextBox"
+                Margin="10" VerticalAlignment="Center"/>
+
+        <TextBlock Grid.Row="9" Grid.Column="0"
+                   Text="カルテ転記機能に使用するキー:"
+                   VerticalAlignment="Center" Margin="10"/>
+        <StackPanel Grid.Row="9" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="10">
+            <RadioButton Name="AltKeyRadioButton" Content="Altキー" Margin="0,0,10,0" GroupName="HotkeyModifier"/>
+            <RadioButton Name="WinKeyRadioButton" Content="Windowsキー" GroupName="HotkeyModifier"/>
+        </StackPanel>
+
+        <TextBlock Grid.Row="10" Grid.Column="0"
+                   Text="音声ファイルを保存する:"
+                   VerticalAlignment="Center" Margin="10"/>
+        <CheckBox Grid.Row="10" Grid.Column="1"
+                  Name="SaveAudioFileCheckBox"
+                  VerticalAlignment="Center" Margin="10"
+                  Content="保存する（オフにすると録音終了後に削除されます）"/>
+
+        <TextBlock Grid.Row="11" Grid.Column="0"
+                   Text="パフォーマンスモード:"
+                   VerticalAlignment="Center" Margin="10"/>
+        <ComboBox Grid.Row="11" Grid.Column="1"
+                  Name="PerformanceModeComboBox"
+                  Margin="10" VerticalAlignment="Center">
+            <ComboBoxItem Content="リアルタイム (即時文字起こし/高速要約)" Tag="Realtime"/>
+            <ComboBoxItem Content="バランス (1分ごとに文字起こし - 文脈重視)" Tag="Balanced"/>
+            <ComboBoxItem Content="低負荷 (5分固定更新 - 安定性重視)" Tag="LowLoad"/>
+            <ComboBoxItem Content="超低負荷 (要約のみ表示)" Tag="UltraLowLoad"/>
+        </ComboBox>
+
+       <StackPanel Grid.Row="13" Grid.Column="0" Grid.ColumnSpan="2"
+                   Orientation="Horizontal"
+                   HorizontalAlignment="Right" Margin="10">
+           <Button Name="SaveButton" Content="保存"
+                    Width="80" Height="30" Margin="5"
+                    Click="SaveButton_Click"/>
+           <Button Name="CancelButton" Content="キャンセル"
+                    Width="80" Height="30" Margin="5"
+                    Click="CancelButton_Click"/>
+       </StackPanel>
+    </Grid>
+</Window>

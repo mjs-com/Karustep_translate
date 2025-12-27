@@ -1,0 +1,60 @@
+# ビルド成果物
+bin/
+obj/
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+*.cache
+*.userosscache
+*.sln.docstates
+
+# データベースファイル（サイズが大きい可能性があるため除外）
+PMDA_medicine_db/
+ICD10_db/
+
+# 機密情報
+google-sheets-key.json
+*.env
+.env
+appsettings.json
+secrets.json
+
+# Windows固有ファイル
+*.Zone.Identifier
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ログファイル
+*.log
+logs/
+
+# 一時ファイル
+*.tmp
+*.temp
+*.swp
+*~
+
+# NuGet
+packages/
+*.nupkg
+*.snupkg
+
+# .NET Core
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Rider
+.idea/
+*.sln.iml
+
+# Visual Studio Code
+.vscode/
+
+# その他
+.DS_Store
+

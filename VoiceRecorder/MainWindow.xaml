@@ -1,0 +1,847 @@
+<Window x:Class="VoiceRecorder.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:VoiceRecorder"
+        Title="カルステップ - 診察音声自動要約システム" Height="600" Width="1110"
+        Background="#DDE9F4">
+    <!-- アイコンは動的に設定するため、ここでは指定しない -->
+    <Window.Resources>
+        <!-- Converter -->
+        <local:SessionIndexConverter x:Key="SessionIndexConverter"/>
+        <local:TimeDisplayConverter x:Key="TimeDisplayConverter"/>
+        <local:SessionStatusIconConverter x:Key="SessionStatusIconConverter"/>
+        <local:SessionStatusColorConverter x:Key="SessionStatusColorConverter"/>
+        <!-- 医療用カラーパレット -->
+        <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#DDE9F4"/>
+        <SolidColorBrush x:Key="PrimaryBlueBrush" Color="#2E7FD3"/>
+        <SolidColorBrush x:Key="LightBlueBrush" Color="#E8F3FF"/>
+        <SolidColorBrush x:Key="SuccessGreenBrush" Color="#27AE60"/>
+        <SolidColorBrush x:Key="WarningOrangeBrush" Color="#E67E22"/>
+        <SolidColorBrush x:Key="LightGrayBrush" Color="#F5F7FA"/>
+        <SolidColorBrush x:Key="MediumGrayBrush" Color="#BDC3C7"/>
+        <SolidColorBrush x:Key="DarkGrayBrush" Color="#2C3E50"/>
+
+        <!-- Phase 3: Chrome風縦型タブ用スタイル -->
+        <Style x:Key="VerticalSessionTabItemStyle" TargetType="ListBoxItem">
+            <Setter Property="Margin" Value="-20,0,0,6"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Foreground" Value="Black"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Grid>
+                            <!-- 左端拡張部分（アクティブ時のみ表示） -->
+                            <Border x:Name="LeftExtension"
+                                    Width="20"
+                                    Background="White"
+                                    HorizontalAlignment="Left"
+                                    Margin="-20,0,0,0"
+                                    Visibility="Collapsed"
+                                    VerticalAlignment="Stretch"/>
+                                    
+                            <!-- タブ本体 -->
+                            <Border x:Name="TabBorder"
+                                    Background="{StaticResource WindowBackgroundBrush}"
+                                    BorderBrush="{StaticResource MediumGrayBrush}"
+                                    BorderThickness="0,0,0,1"
+                                    CornerRadius="6,0,0,6"
+                                    SnapsToDevicePixels="True"
+                                    MinHeight="60">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="40"/> <!-- 左余白（はみ出し20px + 余白20px） -->
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    
+                                    <!-- コンテンツ（左寄せ/中央） -->
+                                    <ContentPresenter Grid.Column="1"
+                                                      Margin="0,8,0,8"
+                                                      VerticalAlignment="Center"
+                                                      HorizontalAlignment="Stretch"
+                                                      RecognizesAccessKey="True"/>
+                                                      
+                                    <!-- ボタンエリア（メモ帳ボタン + 削除ボタン） -->
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Stretch">
+                                        <!-- 📝メモ帳ボタン（事前情報入力用） v30.0追加 -->
+                                        <Button x:Name="PreInfoButton"
+                                                Content="📝"
+                                                FontSize="14"
+                                                Width="32"
+                                                Padding="0"
+                                                Margin="0"
+                                                Background="Transparent"
+                                                BorderThickness="0"
+                                                Foreground="{StaticResource PrimaryBlueBrush}"
+                                                VerticalAlignment="Stretch"
+                                                HorizontalAlignment="Center"
+                                                Cursor="Hand"
+                                                ToolTip="事前情報を入力"
+                                                PreviewMouseLeftButtonDown="PreInfoButton_PreviewMouseLeftButtonDown"
+                                                Click="PreInfoButton_Click">
+                                            <Button.Tag>
+                                                <Binding RelativeSource="{RelativeSource AncestorType=ListBoxItem}" Path="DataContext"/>
+                                            </Button.Tag>
+                                            <Button.Style>
+                                                <Style TargetType="Button">
+                                                    <Setter Property="Template">
+                                                        <Setter.Value>
+                                                            <ControlTemplate TargetType="Button">
+                                                                <Border x:Name="PreInfoBtnBorder" 
+                                                                        Background="{TemplateBinding Background}"
+                                                                        BorderThickness="0"
+                                                                        CornerRadius="0">
+                                                                    <ContentPresenter HorizontalAlignment="Center" 
+                                                                                      VerticalAlignment="Center"/>
+                                                                </Border>
+                                                                <ControlTemplate.Triggers>
+                                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                                        <Setter TargetName="PreInfoBtnBorder" Property="Background" Value="#E8F3FF"/>
+                                                                        <Setter Property="Foreground" Value="#2E7FD3"/>
+                                                                    </Trigger>
+                                                                </ControlTemplate.Triggers>
+                                                            </ControlTemplate>
+                                                        </Setter.Value>
+                                                    </Setter>
+                                                    <Style.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter Property="Foreground" Value="#2E7FD3"/>
+                                                        </Trigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Button.Style>
+                                        </Button>
+                                        
+                                        <!-- ×ボタン（タブ削除用） -->
+                                        <Button x:Name="DeleteButton"
+                                                Content="×"
+                                                FontSize="16"
+                                                FontWeight="Bold"
+                                                Width="40"
+                                                Padding="0"
+                                                Margin="0"
+                                                Background="Transparent"
+                                                BorderThickness="0"
+                                                Foreground="#666666"
+                                                VerticalAlignment="Stretch"
+                                                HorizontalAlignment="Right"
+                                                Cursor="Hand"
+                                                PreviewMouseLeftButtonDown="DeleteButton_PreviewMouseLeftButtonDown"
+                                                Click="DeleteSessionButton_Click">
+                                            <Button.Tag>
+                                                <Binding RelativeSource="{RelativeSource AncestorType=ListBoxItem}" Path="DataContext"/>
+                                            </Button.Tag>
+                                            <Button.Style>
+                                                <Style TargetType="Button">
+                                                    <Setter Property="Template">
+                                                        <Setter.Value>
+                                                            <ControlTemplate TargetType="Button">
+                                                                <Border x:Name="BtnBorder" 
+                                                                        Background="{TemplateBinding Background}"
+                                                                        BorderThickness="0"
+                                                                        CornerRadius="0">
+                                                                    <ContentPresenter HorizontalAlignment="Center" 
+                                                                                      VerticalAlignment="Center"/>
+                                                                </Border>
+                                                                <ControlTemplate.Triggers>
+                                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                                        <Setter TargetName="BtnBorder" Property="Background" Value="#FFE0E0"/>
+                                                                        <!-- テキスト色も赤くする -->
+                                                                        <Setter Property="Foreground" Value="#CC0000"/>
+                                                                    </Trigger>
+                                                                </ControlTemplate.Triggers>
+                                                            </ControlTemplate>
+                                                        </Setter.Value>
+                                                    </Setter>
+                                                    <!-- Style TriggerでForegroundを変える -->
+                                                    <Style.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter Property="Foreground" Value="#CC0000"/>
+                                                        </Trigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Button.Style>
+                                        </Button>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <!-- アクティブタブ（選択中） -->
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="TabBorder" Property="Background" Value="White"/>
+                                <!-- 境界線を消すには BorderBrushを白に設定 -->
+                                <Setter TargetName="TabBorder" Property="BorderThickness" Value="0,1,0,1"/>
+                                <Setter TargetName="TabBorder" Property="BorderBrush" Value="White"/>
+                                <Setter Property="Foreground" Value="Black"/>
+                                <!-- 要約エリアと完全にくっつけるため、左側にはみ出す（スペーサー20px + 患者セッションエリアのPadding左0 = 20px） -->
+                                <!-- Chrome風に上下に広がる形状にするため、Marginを調整 -->
+                                <Setter Property="Margin" Value="-20,-3,0,3"/>
+                                <Setter Property="Panel.ZIndex" Value="10"/>
+                                <!-- Chrome風の形状：左端を上下に広げる -->
+                                <Setter TargetName="TabBorder" Property="CornerRadius" Value="0,0,0,0"/>
+                                <!-- 左端拡張部分を表示し、上下に広げる -->
+                                <Setter TargetName="LeftExtension" Property="Visibility" Value="Visible"/>
+                                <Setter TargetName="LeftExtension" Property="Margin" Value="-20,-3,0,3"/>
+                            </Trigger>
+                            <!-- 非アクティブタブのホバー時 -->
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsSelected" Value="False"/>
+                                    <Condition Property="IsMouseOver" Value="True"/>
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="TabBorder" Property="Background" Value="#EEF5FF"/>
+                            </MultiTrigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="{StaticResource MediumGrayBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        
+        <!-- シンプルなボタンスタイル -->
+        <Style x:Key="PrimaryButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="Foreground" Value="{StaticResource PrimaryBlueBrush}"/>
+            <Setter Property="FontSize" Value="20"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="BorderBrush" Value="{StaticResource PrimaryBlueBrush}"/>
+            <Setter Property="BorderThickness" Value="2"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border" 
+                                Background="{TemplateBinding Background}" 
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="{StaticResource PrimaryBlueBrush}"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        
+        <Style x:Key="RecordButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource SuccessGreenBrush}"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="40"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" 
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="White"/>
+                    <Setter Property="Foreground" Value="#27AE60"/>
+                    <Setter Property="BorderBrush" Value="#27AE60"/>
+                    <Setter Property="BorderThickness" Value="3"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        
+        <Style x:Key="StopButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="#E74C3C"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="40"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" 
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="White"/>
+                    <Setter Property="Foreground" Value="#E74C3C"/>
+                    <Setter Property="BorderBrush" Value="#E74C3C"/>
+                    <Setter Property="BorderThickness" Value="3"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        
+        <Style x:Key="SecondaryButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="Foreground" Value="{StaticResource WarningOrangeBrush}"/>
+            <Setter Property="FontSize" Value="18"/>
+            <Setter Property="BorderBrush" Value="{StaticResource WarningOrangeBrush}"/>
+            <Setter Property="BorderThickness" Value="2"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border" 
+                                Background="{TemplateBinding Background}" 
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="{StaticResource WarningOrangeBrush}"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+    
+    <DockPanel>
+        <Menu DockPanel.Dock="Top">
+            <MenuItem Header="ファイル">
+                <MenuItem Header="音声ファイルと文字起こし全文を表示" Click="OpenTempFolder_Click"/>
+                <MenuItem Header="エラーログを確認する" Click="OpenLogFolder_Click"/>
+                <MenuItem Header="終了" Click="ExitMenuItem_Click"/>
+            </MenuItem>
+            <MenuItem Header="設定">
+                <MenuItem Header="補正辞書の編集" Click="EditDictionary_Click"/>
+                <MenuItem Header="システムプロンプトの編集" Click="EditSystemPrompt_Click"/>
+                <MenuItem Header="API-keyの登録" Click="EditApiKey_Click"/>
+            </MenuItem>
+            <MenuItem Header="診療科選択" Name="DepartmentMenu">
+                <!-- ここにプロンプトファイルのリストが動的に追加される -->
+            </MenuItem>
+            <MenuItem Header="要約を再生成" Name="RegenerateMenu">
+                <!-- v30.0: ここにプロンプトファイルのリストが動的に追加される -->
+            </MenuItem>
+        </Menu>
+        
+        <Grid Margin="20">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="300"/>
+                <ColumnDefinition Width="20"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition x:Name="SessionSpacerColumn" Width="20"/>
+                <ColumnDefinition x:Name="SessionPanelColumn" Width="200"/>
+            </Grid.ColumnDefinitions>
+            
+            <!-- 左列：コントロールパネル -->
+            <Border Grid.Column="0" Background="White" CornerRadius="8" Padding="20">
+                <Grid>
+                    <!-- ライセンス認証UI -->
+                    <StackPanel x:Name="LicensePanel" VerticalAlignment="Center" HorizontalAlignment="Center" Visibility="Collapsed">
+                        <TextBlock Text="🔐 認証が必要です" FontSize="30" FontWeight="Bold" 
+                                   Foreground="{StaticResource DarkGrayBrush}" Margin="0,0,0,15"
+                                   HorizontalAlignment="Center"/>
+                        <TextBlock Text="この端末はまだ認証されていません。" FontSize="14" 
+                                   Foreground="{StaticResource DarkGrayBrush}" Margin="0,0,0,5"/>
+                        <TextBlock Text="下記のハードウェアIDをコピーして、" FontSize="14" 
+                                   Foreground="{StaticResource DarkGrayBrush}" Margin="0,0,0,2"/>
+                        <TextBlock Text="mjsc0mpa2@gmail.com までお知らせください。" FontSize="14" 
+                                   Foreground="{StaticResource DarkGrayBrush}" Margin="0,0,0,15"/>
+
+                        <Border Background="{StaticResource LightGrayBrush}" 
+                                Padding="15" 
+                                BorderBrush="{StaticResource MediumGrayBrush}" 
+                                BorderThickness="1" 
+                                CornerRadius="6"
+                                Margin="0,0,0,15">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock x:Name="HwidTextBlock" 
+                                           Text="HWID-1234-ABCD-5678" 
+                                           FontFamily="Consolas" 
+                                           FontSize="16"/>
+                                <Button Content="📋" 
+                                        Margin="10,0,0,0" 
+                                        Click="CopyHwid_Click"
+                                        Width="30" Height="25"
+                                        VerticalAlignment="Bottom"/>
+                            </StackPanel>
+                        </Border>
+                        
+                        <Button Content="✉ メールを送信" 
+                                Click="SendEmail_Click"
+                                Style="{StaticResource PrimaryButtonStyle}"
+                                Width="200" Height="40"
+                                Margin="0,0,0,20"/>
+                        
+                        <TextBlock Text="認証済みの方は、アプリの再起動をお試しください。" 
+                                   FontSize="16" 
+                                   Foreground="Black"
+                                   HorizontalAlignment="Center"
+                                   TextWrapping="Wrap"
+                                   Width="230"/>
+                    </StackPanel>
+                    
+                    <!-- メインアプリUI -->
+                    <StackPanel x:Name="MainAppPanel" VerticalAlignment="Center" HorizontalAlignment="Center">
+                        <!-- ヘッダー部分 -->
+                        <StackPanel Margin="0,0,0,25">
+                            <TextBlock Text="カルステップ" 
+                                       FontSize="50" 
+                                       FontWeight="Bold" 
+                                       Foreground="{StaticResource DarkGrayBrush}"
+                                       HorizontalAlignment="Center"/>
+                            <TextBlock Text="診察音声自動要約システム" 
+                                       FontSize="16" 
+                                       Foreground="{StaticResource DarkGrayBrush}"
+                                       HorizontalAlignment="Center"
+                                       Margin="0,5,0,0"/>
+                            <TextBlock Name="SelectedPromptText" 
+                                       Text="00. デフォルト" 
+                                       FontSize="18" 
+                                       Foreground="{StaticResource PrimaryBlueBrush}"
+                                       HorizontalAlignment="Center"
+                                       FontWeight="Medium"
+                                       Margin="0,8,0,0"/>
+                        </StackPanel>
+
+                        <!-- 録音ボタン -->
+                        <Button Name="RecordButton" 
+                                Click="RecordButton_Click"
+                                Width="200" 
+                                Height="60" 
+                                Margin="0,0,0,10" 
+                                Content="START"
+                                Style="{StaticResource RecordButtonStyle}"
+                                MouseEnter="RecordButton_MouseEnter"
+                                MouseLeave="RecordButton_MouseLeave"/>
+                        
+                        <!-- 一時停止ボタン -->
+                        <Button Name="PauseButton" 
+                                Click="PauseButton_Click"
+                                Width="200" 
+                                Height="40" 
+                                Margin="0,0,0,15" 
+                                Content="⏸ 一時停止"
+                                Style="{StaticResource SecondaryButtonStyle}"/>
+                        
+                        <!-- ステータス表示 -->
+                        <Border Background="{StaticResource LightBlueBrush}" 
+                                CornerRadius="15" 
+                                Padding="12,6"
+                                Margin="0,0,0,20">
+                            <TextBlock Name="StatusText" 
+                                       Text="🟢 準備完了" 
+                                       FontSize="18" 
+                                       Foreground="{StaticResource PrimaryBlueBrush}"
+                                       TextAlignment="Center"/>
+                        </Border>
+                        
+                        <!-- 要約を開くボタン -->
+                        <Button Name="ViewSummary" 
+                                Content="📋 要約を表示" 
+                                Click="ViewSummary_Click"
+                                Width="200" 
+                                Height="45"
+                                Style="{StaticResource PrimaryButtonStyle}"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+            
+            <!-- 要約結果パネル（独立した白い背景エリア） -->
+            <Border Grid.Column="2" Grid.ColumnSpan="2" Background="White" CornerRadius="8" Padding="20,20,20,20" SnapsToDevicePixels="True">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    
+                    <!-- ヘッダー -->
+                    <Grid Grid.Row="0" Margin="0,0,0,15">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Bottom">
+                            <TextBlock Text="📄要約結果" 
+                                       FontSize="32" 
+                                       FontWeight="Bold" 
+                                       Foreground="{StaticResource DarkGrayBrush}"/>
+                            <TextBlock Text="（テキスト編集可能）" 
+                                       FontSize="16" 
+                                       Foreground="{StaticResource DarkGrayBrush}"
+                                       Margin="0,0,0,4"
+                                       VerticalAlignment="Bottom"/>
+                        </StackPanel>
+                        <Button Grid.Column="1"
+                                Name="CopyTextButton"
+                                Content="📋 要約結果をコピー"
+                                Click="CopyTextButton_Click"
+                                Width="160" Height="40"
+                                FontSize="16"
+                                ToolTip="Alt+フットスイッチで転記可能です"/>
+                        <!-- 患者セッションパネル折りたたみボタン（縦長・細いデザイン） -->
+                        <Button Grid.Column="2"
+                                x:Name="SessionPanelToggleButton"
+                                Click="SessionPanelToggleButton_Click"
+                                Width="16" Height="40"
+                                Margin="8,0,0,0"
+                                ToolTip="患者セッションパネルを折りたたむ/展開する"
+                                Background="#F0F0F0"
+                                BorderBrush="{StaticResource MediumGrayBrush}"
+                                BorderThickness="1"
+                                Cursor="Hand">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="ToggleBtnBorder"
+                                            Background="{TemplateBinding Background}"
+                                            BorderBrush="{TemplateBinding BorderBrush}"
+                                            BorderThickness="{TemplateBinding BorderThickness}"
+                                            CornerRadius="3">
+                                        <TextBlock x:Name="ToggleIcon"
+                                                   Text="›"
+                                                   FontSize="14"
+                                                   FontWeight="Bold"
+                                                   Foreground="{StaticResource DarkGrayBrush}"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center"/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="ToggleBtnBorder" Property="Background" Value="{StaticResource LightBlueBrush}"/>
+                                            <Setter TargetName="ToggleIcon" Property="Foreground" Value="{StaticResource PrimaryBlueBrush}"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+                    </Grid>
+                    
+                    <!-- 録音情報カード -->
+                    <Border Grid.Row="1"
+                            Background="{StaticResource LightGrayBrush}" 
+                            CornerRadius="6" 
+                            Padding="15" 
+                            Margin="0,0,0,15">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="📅 日付" FontSize="11" FontWeight="Bold" 
+                                           Foreground="{StaticResource MediumGrayBrush}" Margin="0,0,0,2"/>
+                                <TextBlock Name="DateDisplayTextBlock" 
+                                           Text="{Binding CurrentDate}" 
+                                           FontFamily="Meiryo UI" 
+                                           FontSize="13"
+                                           Foreground="{StaticResource DarkGrayBrush}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="🕐 時刻" FontSize="11" FontWeight="Bold" 
+                                           Foreground="{StaticResource MediumGrayBrush}" Margin="0,0,0,2"/>
+                                <TextBlock Name="TimeDisplayTextBlock" 
+                                           Text="{Binding CurrentTime}" 
+                                           FontFamily="Meiryo UI" 
+                                           FontSize="13"
+                                           Foreground="{StaticResource DarkGrayBrush}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="👤 患者" FontSize="11" FontWeight="Bold" 
+                                           Foreground="{StaticResource MediumGrayBrush}" Margin="0,0,0,2"/>
+                                <TextBlock Name="PatientNameTextBlock" 
+                                           Text="{Binding CurrentPatientName}" 
+                                           FontFamily="Meiryo UI" 
+                                           FontSize="13"
+                                           Foreground="{StaticResource DarkGrayBrush}"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                    
+                    <!-- 要約テキストボックス -->
+                    <TextBox Grid.Row="2"
+                             Name="SummaryTextBox"
+                             AcceptsReturn="True"
+                             TextWrapping="Wrap"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto"
+                             FontFamily="Meiryo UI"
+                             FontSize="16"
+                             Background="White"
+                             BorderBrush="{StaticResource MediumGrayBrush}"
+                             BorderThickness="1"
+                             Padding="10"
+                             Text="{Binding SummaryText, UpdateSourceTrigger=PropertyChanged}"/>
+                </Grid>
+            </Border>
+
+            <!-- v30.0: 事前情報入力パネル（スライドイン/アウト用オーバーレイ） -->
+            <Border x:Name="PreInfoPanel"
+                    Grid.Column="2" Grid.ColumnSpan="2"
+                    Background="White"
+                    CornerRadius="8"
+                    Padding="20"
+                    Visibility="Collapsed"
+                    Panel.ZIndex="100">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    
+                    <!-- ヘッダー -->
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,15">
+                        <TextBlock Text="📝 事前情報入力"
+                                   FontSize="32"
+                                   FontWeight="Bold"
+                                   Foreground="{StaticResource DarkGrayBrush}"/>
+                        <TextBlock Text="（前回カルテ、問診情報など）"
+                                   FontSize="14"
+                                   Foreground="{StaticResource MediumGrayBrush}"
+                                   VerticalAlignment="Bottom"
+                                   Margin="10,0,0,6"/>
+                    </StackPanel>
+                    
+                    <!-- タイトル（患者名）入力欄 -->
+                    <Grid Grid.Row="1" Margin="0,0,0,15">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="100"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="患者名:"
+                                   FontSize="16"
+                                   FontWeight="SemiBold"
+                                   VerticalAlignment="Center"
+                                   Foreground="{StaticResource DarkGrayBrush}"/>
+                        <TextBox x:Name="PreInfoTitleTextBox"
+                                 Grid.Column="1"
+                                 FontSize="16"
+                                 FontFamily="Meiryo UI"
+                                 Padding="10,8"
+                                 BorderBrush="{StaticResource MediumGrayBrush}"
+                                 BorderThickness="1"/>
+                    </Grid>
+                    
+                    <!-- 事前情報テキストエリア -->
+                    <TextBox Grid.Row="2"
+                             x:Name="PreInfoContentTextBox"
+                             AcceptsReturn="True"
+                             TextWrapping="Wrap"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto"
+                             FontFamily="Meiryo UI"
+                             FontSize="16"
+                             Background="White"
+                             BorderBrush="{StaticResource MediumGrayBrush}"
+                             BorderThickness="1"
+                             Padding="10"/>
+                    
+                    <!-- ボタンエリア -->
+                    <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,15,0,0">
+                        <Button Content="キャンセル"
+                                Click="PreInfoCancelButton_Click"
+                                Width="120" Height="40"
+                                Margin="0,0,10,0"
+                                Style="{StaticResource SecondaryButtonStyle}"/>
+                        <Button Content="💾 保存"
+                                Click="PreInfoSaveButton_Click"
+                                Width="120" Height="40"
+                                Style="{StaticResource PrimaryButtonStyle}"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- 患者セッションエリア（右側、水色背景） -->
+            <Border Grid.Column="4" Background="{StaticResource WindowBackgroundBrush}" CornerRadius="0,8,8,0" Padding="0,15,15,15">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    
+                    <TextBlock Grid.Row="0"
+                               Text="患者セッション" 
+                               FontSize="16" 
+                               FontWeight="Bold" 
+                               Foreground="{StaticResource DarkGrayBrush}"
+                               HorizontalAlignment="Center"
+                               Margin="0,0,0,10"/>
+
+                    <ScrollViewer Grid.Row="1"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  CanContentScroll="False">
+                        <StackPanel>
+                            <ListBox Name="SessionListBox"
+                                     ItemsSource="{Binding Sessions}"
+                                     SelectionChanged="SessionListBox_SelectionChanged"
+                                     Background="Transparent"
+                                     BorderThickness="0"
+                                     PreviewMouseWheel="SessionListBox_PreviewMouseWheel"
+                                     PreviewMouseLeftButtonDown="SessionListBox_PreviewMouseLeftButtonDown"
+                                     ItemContainerStyle="{StaticResource VerticalSessionTabItemStyle}"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                     ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                            </Grid.RowDefinitions>
+                                            <!-- 1行目：番号 + 録音時刻 + ステータスインジケーター -->
+                                            <Grid Grid.Row="0" VerticalAlignment="Center">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                
+                                                <!-- 番号 + 録音時刻（中央固定） -->
+                                                <TextBlock Grid.Column="1"
+                                                           TextAlignment="Center"
+                                                           FontSize="12"
+                                                           Foreground="Black"
+                                                           VerticalAlignment="Center"
+                                                           Margin="0">
+                                                    <TextBlock.Text>
+                                                        <MultiBinding StringFormat="{}{0} {1}">
+                                                            <Binding Path="." Converter="{StaticResource SessionIndexConverter}"/>
+                                                            <Binding Path="RecordingStartTime" Converter="{StaticResource TimeDisplayConverter}"/>
+                                                        </MultiBinding>
+                                                    </TextBlock.Text>
+                                                </TextBlock>
+                                                
+                                                <!-- ステータスインジケーター（中央の右隣） -->
+                                                <TextBlock Grid.Column="2"
+                                                           FontSize="14"
+                                                           FontWeight="Bold"
+                                                           VerticalAlignment="Center"
+                                                           HorizontalAlignment="Left"
+                                                           Margin="4,0,0,0">
+                                                    <TextBlock.Text>
+                                                        <MultiBinding Converter="{StaticResource SessionStatusIconConverter}">
+                                                            <Binding Path="IsRecording" />
+                                                            <Binding Path="IsPaused" />
+                                                            <Binding Path="IsStopped" />
+                                                        </MultiBinding>
+                                                    </TextBlock.Text>
+                                                    <TextBlock.Foreground>
+                                                        <MultiBinding Converter="{StaticResource SessionStatusColorConverter}">
+                                                            <Binding Path="IsRecording" />
+                                                            <Binding Path="IsPaused" />
+                                                            <Binding Path="IsStopped" />
+                                                        </MultiBinding>
+                                                    </TextBlock.Foreground>
+                                                </TextBlock>
+                                            </Grid>
+                                            <!-- 2行目：患者名（編集可能なTextBox） -->
+                                            <TextBox Grid.Row="1"
+                                                     x:Name="PatientNameTextBox"
+                                                     Text="{Binding PatientName, UpdateSourceTrigger=LostFocus}"
+                                                     TextAlignment="Center"
+                                                     FontSize="14"
+                                                     FontWeight="Medium"
+                                                     Foreground="Black"
+                                                     Margin="0,2,0,0"
+                                                     VerticalContentAlignment="Center"
+                                                     PreviewMouseLeftButtonDown="PatientNameTextBox_PreviewMouseLeftButtonDown"
+                                                     GotFocus="PatientNameTextBox_GotFocus"
+                                                     LostFocus="PatientNameTextBox_LostFocus">
+                                                <TextBox.Style>
+                                                    <Style TargetType="TextBox">
+                                                        <!-- デフォルト値の設定 -->
+                                                        <Setter Property="Background" Value="Transparent"/>
+                                                        <Setter Property="BorderThickness" Value="0"/>
+                                                        <Setter Property="Padding" Value="5,0,0,0"/> <!-- テキストと枠の間の余白 -->
+                                                        <Setter Property="Template">
+                                                            <Setter.Value>
+                                                                <ControlTemplate TargetType="TextBox">
+                                                                    <Border x:Name="Bd"
+                                                                            Background="{TemplateBinding Background}"
+                                                                            BorderBrush="{TemplateBinding BorderBrush}"
+                                                                            BorderThickness="{TemplateBinding BorderThickness}"
+                                                                            Padding="{TemplateBinding Padding}">
+                                                                        <ScrollViewer x:Name="PART_ContentHost" 
+                                                                                      Focusable="false" 
+                                                                                      HorizontalScrollBarVisibility="Hidden" 
+                                                                                      VerticalScrollBarVisibility="Hidden"/>
+                                                                    </Border>
+                                                                    <!-- ControlTemplate内トリガーでスタイル変更を確実に適用 -->
+                                                                    <ControlTemplate.Triggers>
+                                                                        <Trigger Property="IsFocused" Value="True">
+                                                                            <Setter TargetName="Bd" Property="Background" Value="#E8F3FF"/>
+                                                                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource PrimaryBlueBrush}"/>
+                                                                            <Setter TargetName="Bd" Property="BorderThickness" Value="2"/>
+                                                                        </Trigger>
+                                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                                            <!-- フォーカスがない時のみマウスオーバー色を適用 -->
+                                                                            <Setter TargetName="Bd" Property="Background" Value="#F5F7FA"/>
+                                                                        </Trigger>
+                                                                        <!-- フォーカス時はマウスオーバーがあってもフォーカス色を優先 -->
+                                                                        <MultiTrigger>
+                                                                            <MultiTrigger.Conditions>
+                                                                                <Condition Property="IsMouseOver" Value="True"/>
+                                                                                <Condition Property="IsFocused" Value="True"/>
+                                                                            </MultiTrigger.Conditions>
+                                                                            <Setter TargetName="Bd" Property="Background" Value="#E8F3FF"/>
+                                                                        </MultiTrigger>
+                                                                    </ControlTemplate.Triggers>
+                                                                </ControlTemplate>
+                                                            </Setter.Value>
+                                                        </Setter>
+                                                        <!-- フォントウェイト等の変更はStyleトリガーで行う -->
+                                                        <Style.Triggers>
+                                                            <Trigger Property="IsFocused" Value="True">
+                                                                <Setter Property="FontWeight" Value="Bold"/>
+                                                            </Trigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBox.Style>
+                                            </TextBox>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                            
+                            <!-- 新規患者ボタンをタブの下に配置（Chrome風） -->
+                            <Button Content="➕ 新規患者"
+                                    Click="AddNewSessionButton_Click"
+                                    Style="{StaticResource PrimaryButtonStyle}"
+                                    Width="170"
+                                    Height="35"
+                                    Margin="0,6,0,0"
+                                    HorizontalAlignment="Center"/>
+                            
+                            <!-- v30.0: 事前情報入力の案内テキスト -->
+                            <TextBlock Text="📝を押すと事前情報を&#10;登録できます"
+                                       FontSize="16"
+                                       Foreground="{StaticResource DarkGrayBrush}"
+                                       HorizontalAlignment="Center"
+                                       Margin="0,8,0,0"
+                                       TextWrapping="Wrap"
+                                       TextAlignment="Center"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+        </Grid>
+    </DockPanel>
+</Window>

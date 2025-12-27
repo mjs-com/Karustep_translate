@@ -1,0 +1,740 @@
+# v30.0 大型アップデート計画書
+## 概要
+本計画書は、以下の2つの大型機能を実装するためのステップバイステップガイドです。
+
+1. **事前情報入力機能** - 診察前の情報（前回カルテ、問診情報等）を入力し、文字起こしと統合して要約
+2. **要約結果の再生成機能** - 異なるシステムプロンプトで要約を再生成
+
+---
+
+## 現状分析（コードレビュー結果）
+
+### 現在のアーキテクチャ
+```
+MainWindow.xaml (UI)
+├── 左列 (Column 0): コントロールパネル（録音ボタン、ステータス等）
+├── 中央列 (Column 2-3): 要約結果表示エリア
+└── 右列 (Column 4): 患者セッションタブ（縦型タブ）
+
+MainWindow.xaml.cs (ロジック)
+├── CurrentSession: 現在選択中のRecordingSession
+├── Sessions: ObservableCollection<RecordingSession>
+├── CurrentSelectedPrompt: 選択中のシステムプロンプトパス
+├── StopRecordingAsync(): 録音停止→文字起こし完了待機
+└── ProcessSummaryAsync(): 要約API呼び出し→結果表示
+
+RecordingSession.cs (セッション管理)
+├── SessionId: "yyyyMMdd_HHmmss" 形式
+├── PatientName: 患者名（タブに表示）
+├── CurrentTextFilePath: 文字起こしファイルパス
+├── SummaryFilePath: 要約結果ファイルパス
+└── SessionRecordingFiles: 録音ファイルリスト
+
+SummarizeText.cs (要約処理)
+└── SummarizeAsync(): 文字起こしファイルを読み込み、システムプロンプトと合わせてAPIに送信
+```
+
+### ユーザー提案の評価
+
+#### 1. 事前情報入力機能 ✅ 妥当
+- **セッションID管理**: 事前情報保存時にセッションIDを確定し、同じIDで文字起こしを紐付けるアイデアは妥当
+- **UIの切り替え**: スライドアニメーションでの画面切り替えは実現可能
+- **タイトル→患者名反映**: PatientNameプロパティの更新で対応可能
+
+#### 2. 要約再生成機能 ✅ 妥当
+- **メニューからの選択**: DepartmentMenuと同様の構成で実装可能
+- **確認ポップアップ**: MessageBox.Showで実装可能
+- **セッションID利用**: 現在表示中の要約に対応するファイルを再利用可能
+
+### 改善提案
+1. **事前情報の保存方式**: 別ファイル（`preinfo_{SessionId}.txt`）に保存し、要約時に結合
+2. **セッション状態の拡張**: `HasPreInfo`プロパティと`PreInfoFilePath`を追加
+3. **再生成用データ保持**: 最後に要約表示したセッションIDを保持
+
+---
+
+## 実装計画
+
+### Phase 1: 基盤整備（RecordingSession拡張）
+**目標**: 事前情報を管理するための基盤を整備
+
+#### Step 1.1: RecordingSessionクラスの拡張
+**ファイル**: `RecordingSession.cs`
+
+**追加するプロパティ**:
+```csharp
+// 事前情報関連
+private string _preInfoText = "";
+public string PreInfoText 
+{
+    get => _preInfoText;
+    set { _preInfoText = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasPreInfo)); }
+}
+
+public bool HasPreInfo => !string.IsNullOrWhiteSpace(_preInfoText);
+
+public string PreInfoFilePath { get; private set; } = "";
+```
+
+**追加するメソッド**:
+```csharp
+// 事前情報を保存（セッションIDを確定）
+public void SavePreInfo(string title, string preInfoText)
+{
+    PatientName = title; // タイトルを患者名として設定
+    PreInfoText = preInfoText;
+    
+    // 事前情報ファイルパスを設定
+    if (!string.IsNullOrEmpty(OutputDirectory))
+    {
+        PreInfoFilePath = Path.Combine(OutputDirectory, $"preinfo_{SessionId}.txt");
+        File.WriteAllText(PreInfoFilePath, preInfoText);
+    }
+}
+
+// 要約用に事前情報と文字起こしを結合したテキストを取得
+public string GetCombinedTextForSummary()
+{
+    var sb = new StringBuilder();
+    
+    if (HasPreInfo && File.Exists(PreInfoFilePath))
+    {
+        sb.AppendLine("【事前情報】");
+        sb.AppendLine(File.ReadAllText(PreInfoFilePath));
+        sb.AppendLine();
+    }
+    
+    if (!string.IsNullOrEmpty(CurrentTextFilePath) && File.Exists(CurrentTextFilePath))
+    {
+        sb.AppendLine("【診察内容（文字起こし）】");
+        sb.AppendLine(File.ReadAllText(CurrentTextFilePath));
+    }
+    
+    return sb.ToString();
+}
+```
+
+**変更点**:
+- `ResetSessionId()`に`PreInfoText = ""`, `PreInfoFilePath = ""`のリセットを追加
+
+#### Step 1.2: セッションID管理ロジックの修正
+**ファイル**: `MainWindow.xaml.cs`
+
+**変更内容**:
+- 事前情報保存時：セッションIDを確定（`ResetSessionId()`を呼ばない）
+- 録音開始時：事前情報がない場合のみ新規セッションIDを生成
+- 要約完了後：次の操作（事前情報入力 or 録音開始）で新規セッションIDを生成
+
+---
+
+### Phase 2: 事前情報入力UI（フロントエンド）
+**目標**: 事前情報入力欄のUIを実装
+
+#### Step 2.1: 患者セッションタブにメモ帳ボタン追加
+**ファイル**: `MainWindow.xaml`
+
+**変更箇所**: `VerticalSessionTabItemStyle`のDataTemplate内
+```xml
+<!-- 既存のGrid.RowDefinitionsの後に追加 -->
+<!-- メモ帳ボタン（事前情報入力用） -->
+<Button Grid.Row="0" Grid.Column="0"
+        x:Name="PreInfoButton"
+        Content="📝"
+        FontSize="14"
+        Width="28" Height="28"
+        Margin="-25,0,0,0"
+        HorizontalAlignment="Left"
+        VerticalAlignment="Center"
+        Background="Transparent"
+        BorderThickness="0"
+        Cursor="Hand"
+        ToolTip="事前情報を入力"
+        Click="PreInfoButton_Click">
+    <Button.Tag>
+        <Binding RelativeSource="{RelativeSource AncestorType=ListBoxItem}" Path="DataContext"/>
+    </Button.Tag>
+</Button>
+```
+
+#### Step 2.2: 事前情報入力パネルの追加
+**ファイル**: `MainWindow.xaml`
+
+**変更箇所**: Grid Column 2-3の要約結果パネルと同じ位置にオーバーレイ
+```xml
+<!-- 事前情報入力パネル（スライドイン/アウト用） -->
+<Border x:Name="PreInfoPanel"
+        Grid.Column="2" Grid.ColumnSpan="2"
+        Background="White"
+        CornerRadius="8"
+        Padding="20"
+        Visibility="Collapsed"
+        RenderTransformOrigin="0.5,0.5">
+    <Border.RenderTransform>
+        <TranslateTransform x:Name="PreInfoPanelTransform" X="600"/>
+    </Border.RenderTransform>
+    
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <!-- ヘッダー -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,15">
+            <TextBlock Text="📝 事前情報入力"
+                       FontSize="32"
+                       FontWeight="Bold"
+                       Foreground="{StaticResource DarkGrayBrush}"/>
+        </StackPanel>
+        
+        <!-- タイトル（患者名）入力欄 -->
+        <Grid Grid.Row="1" Margin="0,0,0,15">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="100"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="患者名:"
+                       FontSize="16"
+                       FontWeight="SemiBold"
+                       VerticalAlignment="Center"/>
+            <TextBox x:Name="PreInfoTitleTextBox"
+                     Grid.Column="1"
+                     FontSize="16"
+                     Padding="10,8"
+                     BorderBrush="{StaticResource MediumGrayBrush}"
+                     BorderThickness="1"/>
+        </Grid>
+        
+        <!-- 事前情報テキストエリア -->
+        <TextBox Grid.Row="2"
+                 x:Name="PreInfoContentTextBox"
+                 AcceptsReturn="True"
+                 TextWrapping="Wrap"
+                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                 FontFamily="Meiryo UI"
+                 FontSize="16"
+                 Background="White"
+                 BorderBrush="{StaticResource MediumGrayBrush}"
+                 BorderThickness="1"
+                 Padding="10"/>
+        
+        <!-- ボタンエリア -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,15,0,0">
+            <Button Content="キャンセル"
+                    Click="PreInfoCancelButton_Click"
+                    Width="120" Height="40"
+                    Margin="0,0,10,0"
+                    Style="{StaticResource SecondaryButtonStyle}"/>
+            <Button Content="💾 保存"
+                    Click="PreInfoSaveButton_Click"
+                    Width="120" Height="40"
+                    Style="{StaticResource PrimaryButtonStyle}"/>
+        </StackPanel>
+    </Grid>
+</Border>
+```
+
+#### Step 2.3: スライドアニメーションの実装
+**ファイル**: `MainWindow.xaml` (Resources内)
+
+```xml
+<!-- スライドアニメーション用Storyboard -->
+<Storyboard x:Key="SlideInPreInfoPanel">
+    <DoubleAnimation Storyboard.TargetName="PreInfoPanelTransform"
+                     Storyboard.TargetProperty="X"
+                     From="600" To="0"
+                     Duration="0:0:0.3">
+        <DoubleAnimation.EasingFunction>
+            <QuadraticEase EaseMode="EaseOut"/>
+        </DoubleAnimation.EasingFunction>
+    </DoubleAnimation>
+</Storyboard>
+
+<Storyboard x:Key="SlideOutPreInfoPanel">
+    <DoubleAnimation Storyboard.TargetName="PreInfoPanelTransform"
+                     Storyboard.TargetProperty="X"
+                     From="0" To="600"
+                     Duration="0:0:0.3">
+        <DoubleAnimation.EasingFunction>
+            <QuadraticEase EaseMode="EaseIn"/>
+        </DoubleAnimation.EasingFunction>
+    </DoubleAnimation>
+</Storyboard>
+```
+
+#### Step 2.4: イベントハンドラの実装
+**ファイル**: `MainWindow.xaml.cs`
+
+```csharp
+// 事前情報入力対象のセッション
+private RecordingSession? _preInfoTargetSession;
+
+// メモ帳ボタンクリック
+private void PreInfoButton_Click(object sender, RoutedEventArgs e)
+{
+    if (sender is Button btn && btn.Tag is RecordingSession session)
+    {
+        _preInfoTargetSession = session;
+        
+        // 既存の事前情報があれば読み込み
+        PreInfoTitleTextBox.Text = session.PatientName != "(未設定)" ? session.PatientName : "";
+        PreInfoContentTextBox.Text = session.PreInfoText ?? "";
+        
+        // パネルを表示してスライドイン
+        PreInfoPanel.Visibility = Visibility.Visible;
+        var slideIn = (Storyboard)FindResource("SlideInPreInfoPanel");
+        slideIn.Begin();
+    }
+}
+
+// キャンセルボタン
+private void PreInfoCancelButton_Click(object sender, RoutedEventArgs e)
+{
+    var slideOut = (Storyboard)FindResource("SlideOutPreInfoPanel");
+    slideOut.Completed += (s, args) =>
+    {
+        PreInfoPanel.Visibility = Visibility.Collapsed;
+        _preInfoTargetSession = null;
+    };
+    slideOut.Begin();
+}
+
+// 保存ボタン
+private void PreInfoSaveButton_Click(object sender, RoutedEventArgs e)
+{
+    if (_preInfoTargetSession == null) return;
+    
+    string title = PreInfoTitleTextBox.Text.Trim();
+    string content = PreInfoContentTextBox.Text.Trim();
+    
+    if (string.IsNullOrEmpty(title))
+    {
+        MessageBox.Show("患者名を入力してください。", "入力エラー", MessageBoxButton.OK, MessageBoxImage.Warning);
+        return;
+    }
+    
+    // 事前情報を保存（セッションIDが確定される）
+    _preInfoTargetSession.SavePreInfo(title, content);
+    
+    // パネルを閉じる
+    var slideOut = (Storyboard)FindResource("SlideOutPreInfoPanel");
+    slideOut.Completed += (s, args) =>
+    {
+        PreInfoPanel.Visibility = Visibility.Collapsed;
+        _preInfoTargetSession = null;
+    };
+    slideOut.Begin();
+    
+    // ステータス更新
+    StatusText.Text = $"✅ 事前情報を保存しました（{title}）";
+}
+```
+
+---
+
+### Phase 3: 事前情報の要約統合（バックエンド）
+**目標**: 事前情報と文字起こしを統合して要約
+
+#### Step 3.1: SummarizeText.csの拡張
+**ファイル**: `SummarizeText.cs`
+
+**新規メソッド追加**:
+```csharp
+/// <summary>
+/// 結合済みテキスト（事前情報＋文字起こし）を受け取って要約する
+/// </summary>
+public static async Task<(string Summary, long RagProcessingTimeMs, string RagQueryText, string RagContext)> 
+    SummarizeFromCombinedTextAsync(string combinedText, string systemPromptPath)
+{
+    // 環境変数の読み込み
+    string azureEndpoint  = GetAzureEndpoint();
+    string deploymentName = GetDeploymentName();
+
+    // エンドポイント検証（HTTPS必須）
+    if (!Uri.TryCreate(azureEndpoint, UriKind.Absolute, out var azureUri) || azureUri.Scheme != Uri.UriSchemeHttps)
+        throw new InvalidOperationException("❌ 無効なAzureエンドポイント（HTTPS必須）");
+
+    // 日付計算のための基準日を明示的に追加
+    string todayDate = DateTime.Now.ToString("yyyy年MM月dd日");
+    string dateHeader = $"【本日の日付（計算基準日）】{todayDate}\n" +
+                        $"※「1週間前」「3日前」「1ヶ月前」などの相対日付は、上記の日付から逆算して具体的な年月日を算出してください。\n\n";
+    string inputText = dateHeader + combinedText;
+
+    // システムプロンプト読み込み（引数で指定されたパスを使用）
+    if (!File.Exists(systemPromptPath))
+        throw new FileNotFoundException($"❌ システムプロンプトが見つかりません: {systemPromptPath}");
+    string systemPrompt = await File.ReadAllTextAsync(systemPromptPath);
+
+    // 辞書読み込み（既存と同じ）
+    // ... 以下、既存のSummarizeAsyncと同じ処理 ...
+}
+```
+
+#### Step 3.2: ProcessSummaryAsyncの修正
+**ファイル**: `MainWindow.xaml.cs`
+
+**変更内容**:
+```csharp
+private async Task ProcessSummaryAsync(RecordingSession session, string textFilePath, long recordingDurationSeconds)
+{
+    // ... 既存コード ...
+
+    // 【変更】事前情報がある場合は結合テキストを使用
+    string inputText;
+    if (session.HasPreInfo)
+    {
+        inputText = session.GetCombinedTextForSummary();
+        // 結合テキストを一時ファイルに保存（デバッグ用）
+        string combinedPath = Path.ChangeExtension(textFilePath, ".combined.txt");
+        await File.WriteAllTextAsync(combinedPath, inputText);
+        
+        // 結合テキストを使用して要約
+        var (rawSummaryContent, ragProcessingTimeMs, ragQueryText, ragContext) = 
+            await SummarizeText.SummarizeFromCombinedTextAsync(inputText, CurrentSelectedPrompt);
+        // ... 以降は既存と同じ ...
+    }
+    else
+    {
+        // 従来通りファイルパスから要約
+        var (rawSummaryContent, ragProcessingTimeMs, ragQueryText, ragContext) = 
+            await SummarizeText.SummarizeAsync(textFilePath);
+        // ... 以降は既存と同じ ...
+    }
+}
+```
+
+---
+
+### Phase 4: 要約再生成機能
+**目標**: 異なるシステムプロンプトで要約を再生成
+
+#### Step 4.1: 再生成用データ保持の追加
+**ファイル**: `MainWindow.xaml.cs`
+
+**追加するフィールド**:
+```csharp
+// 最後に要約を表示したセッションのID（再生成用）
+private string? _lastDisplayedSessionId;
+private RecordingSession? _lastDisplayedSession;
+```
+
+**ProcessSummaryAsync内で更新**:
+```csharp
+// UI更新（メインスレッドで実行）
+this.Dispatcher.Invoke(() =>
+{
+    if (CurrentSession == session)
+    {
+        SummaryText = displayText;
+        // ... 既存コード ...
+        
+        // 【追加】再生成用にセッション情報を保持
+        _lastDisplayedSessionId = session.SessionId;
+        _lastDisplayedSession = session;
+    }
+});
+```
+
+#### Step 4.2: 再生成メニューの追加
+**ファイル**: `MainWindow.xaml`
+
+**変更箇所**: Menu内、診療科選択の後に追加
+```xml
+<MenuItem Header="要約を再生成" Name="RegenerateMenu">
+    <!-- ここにプロンプトファイルのリストが動的に追加される -->
+</MenuItem>
+```
+
+#### Step 4.3: 再生成メニューの動的生成
+**ファイル**: `MainWindow.xaml.cs`
+
+**LoadPromptFilesメソッドに追加**:
+```csharp
+private void LoadPromptFiles()
+{
+    try
+    {
+        // ... 既存のDepartmentMenu処理 ...
+
+        // 【追加】再生成メニューにも同じプロンプトを追加
+        RegenerateMenu.Items.Clear();
+        foreach (var file in promptFiles)
+        {
+            var menuItem = new MenuItem
+            {
+                Header = Path.GetFileNameWithoutExtension(file),
+                Tag = file,
+            };
+            menuItem.Click += RegenerateMenuItem_Click;
+            RegenerateMenu.Items.Add(menuItem);
+        }
+    }
+    catch (Exception ex)
+    {
+        // ... 既存のエラー処理 ...
+    }
+}
+```
+
+#### Step 4.4: 再生成処理の実装
+**ファイル**: `MainWindow.xaml.cs`
+
+```csharp
+private async void RegenerateMenuItem_Click(object sender, RoutedEventArgs e)
+{
+    if (sender is not MenuItem menuItem) return;
+    string selectedPromptPath = (string)menuItem.Tag;
+    string promptName = Path.GetFileNameWithoutExtension(selectedPromptPath);
+    
+    // 再生成対象のセッションを確認
+    if (_lastDisplayedSession == null || string.IsNullOrEmpty(_lastDisplayedSessionId))
+    {
+        MessageBox.Show("再生成対象の要約がありません。\n先に録音→要約を行ってください。", 
+            "再生成エラー", MessageBoxButton.OK, MessageBoxImage.Warning);
+        return;
+    }
+    
+    // 確認ポップアップ
+    var result = MessageBox.Show(
+        $"「{promptName}」プロンプトを使って要約を再生成しますか？\n\n" +
+        $"対象セッション: {_lastDisplayedSession.PatientName}\n" +
+        $"セッションID: {_lastDisplayedSessionId}",
+        "要約の再生成",
+        MessageBoxButton.YesNo,
+        MessageBoxImage.Question);
+    
+    if (result != MessageBoxResult.Yes) return;
+    
+    // 再生成処理
+    await RegenerateSummaryAsync(_lastDisplayedSession, selectedPromptPath);
+}
+
+private async Task RegenerateSummaryAsync(RecordingSession session, string systemPromptPath)
+{
+    try
+    {
+        StatusText.Text = "🔄 再生成中...";
+        SummaryText = "🔄 要約を再生成中...\n\nしばらくお待ちください。";
+        
+        // 結合テキストを取得（事前情報＋文字起こし）
+        string combinedText = session.GetCombinedTextForSummary();
+        
+        if (string.IsNullOrWhiteSpace(combinedText))
+        {
+            StatusText.Text = "⚠️ 再生成失敗";
+            SummaryText = "❌ 再生成に必要なテキストデータがありません。";
+            return;
+        }
+        
+        // 時間計測
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        
+        // 指定されたプロンプトで要約を再生成
+        var (rawSummaryContent, _, _, _) = 
+            await SummarizeText.SummarizeFromCombinedTextAsync(combinedText, systemPromptPath);
+        
+        sw.Stop();
+        
+        // 結果を表示
+        var (fact, assessment, todo) = ExtractSummaryContent(rawSummaryContent);
+        string displayText = FormatSummaryForDisplay(fact, assessment, todo);
+        
+        SummaryText = displayText;
+        StatusText.Text = $"✅ 再生成完了 ({sw.ElapsedMilliseconds}ms)";
+        
+        // 再生成した要約をファイルに保存（上書き or 別名保存）
+        string summaryPath = session.SummaryFilePath;
+        if (!string.IsNullOrEmpty(summaryPath))
+        {
+            string fileContent = displayText + Environment.NewLine + Environment.NewLine + 
+                "--- 再生成情報 ---" + Environment.NewLine +
+                $"使用プロンプト: {Path.GetFileNameWithoutExtension(systemPromptPath)}" + Environment.NewLine +
+                $"再生成日時: {DateTime.Now:yyyy-MM-dd HH:mm:ss}" + Environment.NewLine +
+                $"処理時間: {sw.ElapsedMilliseconds} ms";
+            await File.WriteAllTextAsync(summaryPath, fileContent);
+        }
+        
+        // 患者名の更新
+        UpdatePatientName(rawSummaryContent);
+    }
+    catch (Exception ex)
+    {
+        StatusText.Text = "⚠️ 再生成エラー";
+        SummaryText = $"❌ 再生成中にエラーが発生しました:\n{ex.Message}";
+        LogToFile($"[再生成エラー] {ex.Message}\n{ex.StackTrace}");
+    }
+}
+```
+
+---
+
+### Phase 5: セッションID管理の改善
+**目標**: 事前情報有無に応じた適切なセッションID管理
+
+#### Step 5.1: 録音開始時のセッションID管理
+**ファイル**: `MainWindow.xaml.cs`
+
+**StartNewRecordingメソッドの修正**:
+```csharp
+private async Task StartNewRecording()
+{
+    // ... 既存の前処理 ...
+    
+    // Phase 2: CurrentSession が null の場合は最初のセッションを使用
+    if (CurrentSession == null)
+    {
+        // ... 既存コード ...
+    }
+    
+    // 【修正】セッション状態に応じた処理
+    if (CurrentSession.IsStopped && !CurrentSession.IsPaused)
+    {
+        // 前回の録音が停止済み → 新しいセッションIDが必要
+        
+        // 【追加】ただし、事前情報が入力済みでまだ録音されていない場合は
+        // 同じセッションIDを使用する
+        bool hasUnrecordedPreInfo = CurrentSession.HasPreInfo && 
+                                    CurrentSession.SessionRecordingFiles.Count == 0;
+        
+        if (hasUnrecordedPreInfo)
+        {
+            // 事前情報入力済み、録音未実施 → 同じセッションIDを使用
+            Debug.WriteLine($"✅ 事前情報入力済みセッションで録音開始: SessionId={CurrentSession.SessionId}");
+        }
+        else
+        {
+            // 事前情報なし or 既に録音済み → 新規セッションを作成
+            // ... 既存の新規セッション作成コード ...
+        }
+    }
+    
+    // ... 以降は既存コード ...
+}
+```
+
+#### Step 5.2: セッション切り替え時の注意事項
+**ファイル**: `MainWindow.xaml.cs`
+
+**SessionListBox_SelectionChangedの確認**:
+- 事前情報入力中のセッションから切り替える場合の警告
+- 録音中のセッションから切り替える場合の自動一時停止（既存機能）
+
+---
+
+### Phase 6: テスト計画
+
+#### 6.1 事前情報入力機能のテスト
+| テストケース | 期待結果 |
+|------------|---------|
+| メモ帳ボタンクリック | スライドパネルが表示される |
+| 患者名のみ入力して保存 | 保存成功、タブに患者名が反映 |
+| 事前情報入力後に録音 | 同じセッションIDで録音される |
+| 事前情報あり→要約 | 事前情報＋文字起こしが統合される |
+| 事前情報なし→要約 | 従来通り文字起こしのみで要約 |
+| 要約完了後→次の録音 | 新しいセッションIDが生成される |
+
+#### 6.2 再生成機能のテスト
+| テストケース | 期待結果 |
+|------------|---------|
+| 要約なしで再生成 | エラーメッセージ表示 |
+| プロンプト選択→キャンセル | 再生成されない |
+| プロンプト選択→はい | 再生成が実行される |
+| 異なるプロンプトで再生成 | 新しいプロンプトで要約される |
+| 再生成結果の保存 | ファイルに保存される |
+
+#### 6.3 セッション管理のテスト
+| テストケース | 期待結果 |
+|------------|---------|
+| 事前情報入力→別患者の録音 | 別のセッションIDが使われる |
+| 複数タブでの事前情報管理 | 各タブ独立して管理される |
+| セッション切り替え | 適切に状態が切り替わる |
+
+---
+
+## 実装順序（推奨）
+
+### Week 1: 基盤整備
+1. **Day 1-2**: Phase 1 - RecordingSession拡張
+   - プロパティ追加
+   - メソッド追加
+   - 単体テスト
+
+2. **Day 3-4**: Phase 3 - SummarizeText拡張
+   - SummarizeFromCombinedTextAsync実装
+   - 既存SummarizeAsyncとの整合性確認
+
+3. **Day 5**: Phase 5 - セッションID管理改善
+   - StartNewRecordingの修正
+   - 状態遷移のデバッグ
+
+### Week 2: UI実装
+4. **Day 1-2**: Phase 2 (Step 2.1-2.2) - XAML追加
+   - メモ帳ボタン追加
+   - 事前情報パネル追加
+
+5. **Day 3**: Phase 2 (Step 2.3-2.4) - アニメーション＆イベント
+   - スライドアニメーション
+   - イベントハンドラ
+
+6. **Day 4-5**: Phase 4 - 再生成機能
+   - メニュー追加
+   - 再生成処理実装
+
+### Week 3: テスト＆調整
+7. **Day 1-3**: Phase 6 - テスト実行
+   - 各テストケース実行
+   - バグ修正
+
+8. **Day 4-5**: ドキュメント＆リリース準備
+   - 変更履歴更新
+   - リリースビルド
+
+---
+
+## 注意事項
+
+### 後方互換性
+- 既存の要約ファイル（.summary.txt）は引き続き使用可能
+- 事前情報がないセッションは従来通りの動作
+
+### パフォーマンス
+- 事前情報ファイルの読み書きは軽量なので影響なし
+- 要約API呼び出し時のテキスト量増加による影響を監視
+
+### エラーハンドリング
+- 事前情報ファイルが見つからない場合は文字起こしのみで要約
+- 再生成失敗時は元の要約を保持
+
+---
+
+## 今回のまとめ
+
+1. **ユーザーの設計は妥当**です。セッションID管理、UIスライド切り替え、再生成機能の基本設計は問題ありません。
+
+2. **主な変更点**:
+   - RecordingSession.csに事前情報関連のプロパティ・メソッドを追加
+   - MainWindow.xamlに事前情報入力パネルと再生成メニューを追加
+   - SummarizeText.csに結合テキスト用の要約メソッドを追加
+   - MainWindow.xaml.csにイベントハンドラと再生成処理を追加
+
+3. **推奨実装期間**: 約2-3週間（テスト含む）
+
+---
+
+## ユーザーにしてほしいこと
+
+1. **本計画書の内容を確認**し、不明点や修正したい点があればお知らせください。
+
+2. **実装の優先順位**を確認してください：
+   - 事前情報入力機能を先に実装するか
+   - 再生成機能を先に実装するか
+   - 両方同時に進めるか
+
+3. **UIデザインの確認**：
+   - メモ帳ボタンの位置（現在は各タブの左端を想定）
+   - スライドパネルのデザイン
+   - 再生成確認ポップアップの文言
+
+4. 確認が完了したら、「Phase 1から実装開始してください」とお伝えください。
