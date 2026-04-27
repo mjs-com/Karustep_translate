@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>POC-1: フットスイッチ検証</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      font-family: 'Segoe UI', 'Hiragino Sans', sans-serif;
+      padding: 20px;
+      max-width: 900px;
+      margin: 0 auto;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      color: #333;
+    }
+    .container {
+      background: white;
+      border-radius: 16px;
+      padding: 30px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    h1 {
+      margin-top: 0;
+      color: #4a5568;
+      font-size: 1.8rem;
+    }
+    h2 {
+      color: #667eea;
+      font-size: 1.2rem;
+      margin-top: 25px;
+    }
+    #status {
+      font-size: 28px;
+      padding: 25px;
+      text-align: center;
+      margin: 20px 0;
+      border-radius: 12px;
+      font-weight: bold;
+      transition: all 0.3s ease;
+    }
+    .recording {
+      background: linear-gradient(135deg, #ff4444 0%, #cc0000 100%);
+      color: white;
+      animation: pulse 1s infinite;
+    }
+    .stopped {
+      background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+      color: white;
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.02); }
+    }
+    #log {
+      background: #1a1a2e;
+      color: #0f0;
+      padding: 20px;
+      font-family: 'Consolas', 'Monaco', monospace;
+      height: 300px;
+      overflow-y: auto;
+      border-radius: 8px;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .key-info {
+      margin: 4px 0;
+      padding: 2px 0;
+    }
+    .key-info.keydown {
+      color: #00ff88;
+    }
+    .key-info.keyup {
+      color: #88aaff;
+    }
+    .key-info.action {
+      color: #ffff00;
+      font-weight: bold;
+    }
+    ol {
+      background: #f7fafc;
+      padding: 20px 40px;
+      border-radius: 8px;
+      line-height: 1.8;
+    }
+    ol li {
+      margin: 8px 0;
+    }
+    button {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      font-size: 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+    button:active {
+      transform: translateY(0);
+    }
+    #hid-result {
+      margin-top: 15px;
+      padding: 15px;
+      background: #f7fafc;
+      border-radius: 8px;
+      min-height: 50px;
+    }
+    .device-card {
+      background: white;
+      padding: 15px;
+      margin: 10px 0;
+      border-radius: 8px;
+      border-left: 4px solid #667eea;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .result-section {
+      margin-top: 30px;
+      padding: 20px;
+      background: #f0fff4;
+      border-radius: 12px;
+      border: 2px solid #48bb78;
+    }
+    .result-section h3 {
+      margin-top: 0;
+      color: #2f855a;
+    }
+    .result-item {
+      display: flex;
+      align-items: center;
+      margin: 10px 0;
+      padding: 10px;
+      background: white;
+      border-radius: 8px;
+    }
+    .result-item input[type="checkbox"] {
+      width: 20px;
+      height: 20px;
+      margin-right: 15px;
+    }
+    .warning {
+      background: #fffbeb;
+      border: 2px solid #f59e0b;
+      padding: 15px;
+      border-radius: 8px;
+      margin-top: 20px;
+    }
+    .warning h4 {
+      margin: 0 0 10px 0;
+      color: #d97706;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎛️ POC-1: フットスイッチ検証</h1>
+    
+    <div id="status" class="stopped">⏹ 停止中（スペースキーまたはフットスイッチで切替）</div>
+    
+    <h2>📋 検証手順</h2>
+    <ol>
+      <li><strong>フォーカス確認</strong>: このページがアクティブな状態でフットスイッチを踏む</li>
+      <li><strong>ログ確認</strong>: 下のログにキーイベント（keydown/keyup）が表示されるか確認</li>
+      <li><strong>録音切替</strong>: フットスイッチで「録音中」⇔「停止中」が切り替わるか確認</li>
+      <li><strong>バックグラウンド確認</strong>: 別のウィンドウにフォーカスを移した状態で踏み、イベントが発火するか確認（※発火しないのが正常）</li>
+    </ol>
+    
+    <h2>📊 キーイベントログ</h2>
+    <div id="log"></div>
+    
+    <h2>🔌 WebHID API検証（代替案）</h2>
+    <p>フットスイッチがキーボードとして認識されない場合、HIDデバイスとして直接制御できる可能性があります。</p>
+    <button id="hid-btn">HIDデバイス一覧を取得</button>
+    <div id="hid-result"></div>
+    
+    <div class="result-section">
+      <h3>✅ 検証結果チェックリスト</h3>
+      <div class="result-item">
+        <input type="checkbox" id="check1">
+        <label for="check1">フォーカス中にフットスイッチのキーイベントが発火した</label>
+      </div>
+      <div class="result-item">
+        <input type="checkbox" id="check2">
+        <label for="check2">録音開始/停止の切替が正常に動作した</label>
+      </div>
+      <div class="result-item">
+        <input type="checkbox" id="check3">
+        <label for="check3">バックグラウンド時はイベントが発火しなかった（想定通り）</label>
+      </div>
+      <div class="result-item">
+        <input type="checkbox" id="check4">
+        <label for="check4">WebHID APIでデバイスが認識された（オプション）</label>
+      </div>
+    </div>
+    
+    <div class="warning">
+      <h4>⚠️ 判定基準</h4>
+      <p>
+        <strong>✅ Go（Webアプリ続行）:</strong> チェック1,2,3がすべてON<br>
+        <strong>🔴 No-Go（ネイティブアプリ検討）:</strong> チェック1がOFFの場合
+      </p>
+    </div>
+  </div>
+
+  <script>
+    const log = document.getElementById('log');
+    const status = document.getElementById('status');
+    let isRecording = false;
+    let eventCount = 0;
+    
+    function addLog(message, className = '') {
+      eventCount++;
+      const time = new Date().toISOString().split('T')[1].split('.')[0];
+      const div = document.createElement('div');
+      div.className = `key-info ${className}`;
+      div.textContent = `[${time}] #${eventCount} ${message}`;
+      log.appendChild(div);
+      log.scrollTop = log.scrollHeight;
+    }
+    
+    // キーボードイベント監視
+    document.addEventListener('keydown', (e) => {
+      addLog(`⬇️ keydown: code="${e.code}", key="${e.key}", keyCode=${e.keyCode}, repeat=${e.repeat}`, 'keydown');
+      
+      // 録音切替用キー
+      // ✅ フットスイッチ: Ctrl+Shift+, (Comma, keyCode=188)
+      // ✅ スペースキー（テスト用）
+      // ✅ F13-F24（一部のフットスイッチ）
+      const isFootSwitch = e.ctrlKey && e.shiftKey && e.code === 'Comma';
+      const isSpace = e.code === 'Space';
+      const isFunctionKey = e.code.startsWith('F1') || e.keyCode >= 112;
+      
+      if (!e.repeat && (isFootSwitch || isSpace || isFunctionKey)) {
+        if (isSpace) {
+          e.preventDefault(); // スペースのスクロール防止
+        }
+        if (isFootSwitch) {
+          e.preventDefault();
+          addLog('🦶 フットスイッチ検出 (Ctrl+Shift+,)', 'action');
+        }
+        toggleRecording();
+      }
+    });
+    
+    document.addEventListener('keyup', (e) => {
+      addLog(`⬆️ keyup: code="${e.code}", key="${e.key}"`, 'keyup');
+    });
+    
+    function toggleRecording() {
+      isRecording = !isRecording;
+      if (isRecording) {
+        status.textContent = '🔴 録音中';
+        status.className = 'recording';
+        addLog('✅ >>> 録音開始 <<<', 'action');
+      } else {
+        status.textContent = '⏹ 停止中（スペースキーまたはフットスイッチで切替）';
+        status.className = 'stopped';
+        addLog('⏹ >>> 録音停止 <<<', 'action');
+      }
+    }
+    
+    // フォーカス状態の監視
+    window.addEventListener('focus', () => {
+      addLog('🔵 ウィンドウにフォーカスが戻りました', 'action');
+    });
+    
+    window.addEventListener('blur', () => {
+      addLog('⚪ ウィンドウがフォーカスを失いました（この後のキーイベントは発火しません）', 'action');
+    });
+    
+    // WebHID API検証
+    document.getElementById('hid-btn').addEventListener('click', async () => {
+      const result = document.getElementById('hid-result');
+      
+      if (!('hid' in navigator)) {
+        result.innerHTML = '<p style="color: #e53e3e;">❌ WebHID APIはこのブラウザでサポートされていません（Chrome 89+が必要）</p>';
+        return;
+      }
+      
+      try {
+        result.innerHTML = '<p>デバイス選択ダイアログを表示中...</p>';
+        const devices = await navigator.hid.requestDevice({ filters: [] });
+        
+        if (devices.length === 0) {
+          result.innerHTML = '<p style="color: #d69e2e;">⚠️ デバイスが選択されませんでした</p>';
+        } else {
+          result.innerHTML = '<h4>検出されたデバイス:</h4>';
+          devices.forEach((device, i) => {
+            result.innerHTML += `
+              <div class="device-card">
+                <strong>デバイス ${i + 1}:</strong> ${device.productName || '(名前なし)'}<br>
+                <small>
+                  vendorId: 0x${device.vendorId.toString(16).padStart(4, '0')}, 
+                  productId: 0x${device.productId.toString(16).padStart(4, '0')}
+                </small>
+              </div>
+            `;
+          });
+          addLog(`🔌 WebHID: ${devices.length}個のデバイスを検出`, 'action');
+        }
+      } catch (err) {
+        if (err.name === 'NotAllowedError') {
+          result.innerHTML = '<p style="color: #d69e2e;">⚠️ ユーザーがデバイス選択をキャンセルしました</p>';
+        } else {
+          result.innerHTML = `<p style="color: #e53e3e;">❌ エラー: ${err.message}</p>`;
+        }
+      }
+    });
+    
+    // 初期ログ
+    addLog('🚀 フットスイッチ検証ページを読み込みました', 'action');
+    addLog('📌 フットスイッチを踏んでキーイベントが発火するか確認してください');
+    addLog('💡 ヒント: スペースキーでも録音切替をテストできます');
+  </script>
+</body>
+</html>
+

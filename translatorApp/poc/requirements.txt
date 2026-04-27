@@ -1,0 +1,15 @@
+# POC用 Python依存パッケージ
+# インストール: pip install -r requirements.txt
+
+# HTTP通信（非同期対応）
+httpx>=0.27.0
+
+# 音声処理（オプション：WAV解析用）
+# pydub>=0.25.1
+
+# 型ヒント（Python 3.9+は標準搭載だが明示）
+typing-extensions>=4.0.0
+
+# 環境変数管理（オプション）
+python-dotenv>=1.0.0
+

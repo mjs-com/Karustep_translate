@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>POC-2: Web Audio API録音検証</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      font-family: 'Segoe UI', 'Hiragino Sans', sans-serif;
+      padding: 20px;
+      max-width: 900px;
+      margin: 0 auto;
+      background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+      min-height: 100vh;
+    }
+    .container {
+      background: white;
+      border-radius: 16px;
+      padding: 30px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    h1 {
+      margin-top: 0;
+      color: #4a5568;
+      font-size: 1.8rem;
+    }
+    h2 {
+      color: #11998e;
+      font-size: 1.2rem;
+      margin-top: 25px;
+    }
+    .controls {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin: 20px 0;
+    }
+    button {
+      padding: 15px 30px;
+      font-size: 16px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-weight: bold;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    #start {
+      background: linear-gradient(135deg, #ff4444 0%, #cc0000 100%);
+      color: white;
+    }
+    #stop {
+      background: linear-gradient(135deg, #4a5568 0%, #2d3748 100%);
+      color: white;
+    }
+    #play {
+      background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+      color: white;
+    }
+    #download {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+    button:not(:disabled):hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+    #info {
+      background: #f7fafc;
+      padding: 20px;
+      border-radius: 8px;
+      margin: 20px 0;
+      min-height: 100px;
+    }
+    #info p {
+      margin: 8px 0;
+    }
+    .success {
+      color: #38a169;
+    }
+    .error {
+      color: #e53e3e;
+    }
+    .warning {
+      color: #d69e2e;
+    }
+    #visualizer {
+      width: 100%;
+      height: 100px;
+      background: #1a1a2e;
+      border-radius: 8px;
+      margin: 20px 0;
+    }
+    audio {
+      width: 100%;
+      margin: 20px 0;
+    }
+    .spec-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+    }
+    .spec-table th, .spec-table td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .spec-table th {
+      background: #f7fafc;
+      font-weight: 600;
+    }
+    .spec-table .match {
+      color: #38a169;
+      font-weight: bold;
+    }
+    .spec-table .mismatch {
+      color: #e53e3e;
+    }
+    .result-section {
+      margin-top: 30px;
+      padding: 20px;
+      background: #f0fff4;
+      border-radius: 12px;
+      border: 2px solid #48bb78;
+    }
+    .result-section h3 {
+      margin-top: 0;
+      color: #2f855a;
+    }
+    .chunk-info {
+      background: #edf2f7;
+      padding: 15px;
+      border-radius: 8px;
+      margin: 10px 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎤 POC-2: Web Audio API録音検証</h1>
+    
+    <h2>📋 検証目的</h2>
+    <p>ブラウザでVoiceRecorderと同等の音質（16kHz, 16bit, モノラル）で録音できるか確認します。</p>
+    
+    <h2>🎯 目標スペック（VoiceRecorder準拠）</h2>
+    <table class="spec-table">
+      <tr>
+        <th>項目</th>
+        <th>目標値</th>
+        <th id="actual-header">実測値</th>
+      </tr>
+      <tr>
+        <td>サンプルレート</td>
+        <td>16,000 Hz</td>
+        <td id="actual-samplerate">-</td>
+      </tr>
+      <tr>
+        <td>チャンネル数</td>
+        <td>1 (モノラル)</td>
+        <td id="actual-channels">-</td>
+      </tr>
+      <tr>
+        <td>ビット深度</td>
+        <td>16 bit</td>
+        <td id="actual-bitdepth">-</td>
+      </tr>
+    </table>
+    
+    <h2>🎙️ 録音テスト</h2>
+    <div class="controls">
+      <button id="start">🔴 録音開始</button>
+      <button id="stop" disabled>⏹ 録音停止</button>
+      <button id="play" disabled>▶️ 再生</button>
+      <button id="download" disabled>💾 WAVダウンロード</button>
+    </div>
+    
+    <h2>📊 音声波形（リアルタイム）</h2>
+    <canvas id="visualizer"></canvas>
+    
+    <h2>ℹ️ 録音情報</h2>
+    <div id="info">
+      <p>録音ボタンを押してマイクアクセスを許可してください。</p>
+    </div>
+    
+    <audio id="audio" controls style="display:none;"></audio>
+    
+    <h2>📦 チャンク分割テスト</h2>
+    <div class="chunk-info">
+      <p>VoiceRecorderでは5〜30秒ごとにチャンク分割してAPI送信します。</p>
+      <p>録音中、5秒ごとにチャンク情報を表示します。</p>
+      <div id="chunk-log"></div>
+    </div>
+    
+    <div class="result-section">
+      <h3>✅ 検証結果</h3>
+      <div id="result-summary">
+        <p>録音を実行してください。</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let mediaRecorder;
+    let audioChunks = [];
+    let audioContext;
+    let analyser;
+    let animationId;
+    let startTime;
+    let chunkCount = 0;
+    let wavBlob = null;
+    
+    const canvas = document.getElementById('visualizer');
+    const canvasCtx = canvas.getContext('2d');
+    
+    // キャンバスサイズ調整
+    function resizeCanvas() {
+      canvas.width = canvas.offsetWidth * window.devicePixelRatio;
+      canvas.height = canvas.offsetHeight * window.devicePixelRatio;
+      canvasCtx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    }
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+    
+    // 波形描画
+    function drawWaveform() {
+      if (!analyser) return;
+      
+      const bufferLength = analyser.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+      analyser.getByteTimeDomainData(dataArray);
+      
+      const width = canvas.offsetWidth;
+      const height = canvas.offsetHeight;
+      
+      canvasCtx.fillStyle = '#1a1a2e';
+      canvasCtx.fillRect(0, 0, width, height);
+      
+      canvasCtx.lineWidth = 2;
+      canvasCtx.strokeStyle = '#38ef7d';
+      canvasCtx.beginPath();
+      
+      const sliceWidth = width / bufferLength;
+      let x = 0;
+      
+      for (let i = 0; i < bufferLength; i++) {
+        const v = dataArray[i] / 128.0;
+        const y = (v * height) / 2;
+        
+        if (i === 0) {
+          canvasCtx.moveTo(x, y);
+        } else {
+          canvasCtx.lineTo(x, y);
+        }
+        x += sliceWidth;
+      }
+      
+      canvasCtx.stroke();
+      animationId = requestAnimationFrame(drawWaveform);
+    }
+    
+    // 情報表示
+    function showInfo(message, type = '') {
+      const info = document.getElementById('info');
+      const p = document.createElement('p');
+      p.className = type;
+      p.innerHTML = message;
+      info.appendChild(p);
+    }
+    
+    function clearInfo() {
+      document.getElementById('info').innerHTML = '';
+    }
+    
+    // 録音開始
+    document.getElementById('start').addEventListener('click', async () => {
+      try {
+        clearInfo();
+        chunkCount = 0;
+        document.getElementById('chunk-log').innerHTML = '';
+        
+        showInfo('🔄 マイクアクセスを要求中...');
+        
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            sampleRate: 16000,
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          }
+        });
+        
+        showInfo('✅ マイクアクセス許可', 'success');
+        
+        // AudioContext作成
+        audioContext = new AudioContext({ sampleRate: 16000 });
+        const source = audioContext.createMediaStreamSource(stream);
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 2048;
+        source.connect(analyser);
+        
+        // 実際のサンプルレートを表示
+        const actualSampleRate = audioContext.sampleRate;
+        document.getElementById('actual-samplerate').textContent = `${actualSampleRate.toLocaleString()} Hz`;
+        document.getElementById('actual-samplerate').className = actualSampleRate === 16000 ? 'match' : 'mismatch';
+        
+        document.getElementById('actual-channels').textContent = '1 (モノラル)';
+        document.getElementById('actual-channels').className = 'match';
+        
+        document.getElementById('actual-bitdepth').textContent = '32 bit float → 16 bit (変換)';
+        document.getElementById('actual-bitdepth').className = 'match';
+        
+        showInfo(`📊 AudioContext サンプルレート: ${actualSampleRate} Hz`);
+        
+        if (actualSampleRate !== 16000) {
+          showInfo(`⚠️ 注意: ブラウザが16kHzをサポートしていません。${actualSampleRate}Hzで録音します。`, 'warning');
+        }
+        
+        // MediaRecorder作成
+        const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') 
+          ? 'audio/webm;codecs=opus' 
+          : 'audio/webm';
+        
+        mediaRecorder = new MediaRecorder(stream, { mimeType });
+        audioChunks = [];
+        
+        showInfo(`🎤 録音形式: ${mimeType}`);
+        
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            audioChunks.push(event.data);
+            chunkCount++;
+            
+            const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+            const chunkLog = document.getElementById('chunk-log');
+            chunkLog.innerHTML += `<p>📦 チャンク #${chunkCount}: ${event.data.size.toLocaleString()} bytes (経過: ${elapsed}秒)</p>`;
+          }
+        };
+        
+        mediaRecorder.onstop = async () => {
+          cancelAnimationFrame(animationId);
+          
+          const audioBlob = new Blob(audioChunks, { type: mimeType });
+          const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+          
+          showInfo(`✅ 録音完了: ${audioBlob.size.toLocaleString()} bytes (${duration}秒, ${chunkCount}チャンク)`, 'success');
+          
+          // 再生用URL
+          const audioUrl = URL.createObjectURL(audioBlob);
+          const audio = document.getElementById('audio');
+          audio.src = audioUrl;
+          audio.style.display = 'block';
+          
+          // WAV変換
+          showInfo('🔄 WAV形式に変換中...');
+          try {
+            wavBlob = await convertToWav(audioBlob, actualSampleRate);
+            showInfo(`✅ WAV変換完了: ${wavBlob.size.toLocaleString()} bytes`, 'success');
+            document.getElementById('download').disabled = false;
+            
+            // 結果サマリー
+            updateResultSummary(true, actualSampleRate, duration);
+          } catch (err) {
+            showInfo(`❌ WAV変換エラー: ${err.message}`, 'error');
+            updateResultSummary(false, actualSampleRate, duration, err.message);
+          }
+          
+          document.getElementById('play').disabled = false;
+          
+          // ストリーム停止
+          stream.getTracks().forEach(track => track.stop());
+        };
+        
+        // 5秒ごとにデータを取得（チャンク分割シミュレーション）
+        startTime = Date.now();
+        mediaRecorder.start(5000);
+        
+        // 波形描画開始
+        drawWaveform();
+        
+        document.getElementById('start').disabled = true;
+        document.getElementById('stop').disabled = false;
+        document.getElementById('play').disabled = true;
+        document.getElementById('download').disabled = true;
+        
+        showInfo('🔴 録音中... (5秒ごとにチャンク生成)');
+        
+      } catch (err) {
+        showInfo(`❌ エラー: ${err.message}`, 'error');
+        if (err.name === 'NotAllowedError') {
+          showInfo('💡 ヒント: ブラウザのマイク許可設定を確認してください。', 'warning');
+        }
+      }
+    });
+    
+    // 録音停止
+    document.getElementById('stop').addEventListener('click', () => {
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+        document.getElementById('start').disabled = false;
+        document.getElementById('stop').disabled = true;
+      }
+    });
+    
+    // 再生
+    document.getElementById('play').addEventListener('click', () => {
+      document.getElementById('audio').play();
+    });
+    
+    // WAVダウンロード
+    document.getElementById('download').addEventListener('click', () => {
+      if (wavBlob) {
+        const url = URL.createObjectURL(wavBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `recording_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.wav`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    });
+    
+    // WAV変換関数
+    async function convertToWav(blob, sampleRate) {
+      const arrayBuffer = await blob.arrayBuffer();
+      const audioCtx = new OfflineAudioContext(1, 44100 * 60, sampleRate);
+      const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+      
+      // 16kHzにリサンプリング
+      const targetSampleRate = 16000;
+      const offlineCtx = new OfflineAudioContext(1, audioBuffer.duration * targetSampleRate, targetSampleRate);
+      const source = offlineCtx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(offlineCtx.destination);
+      source.start();
+      
+      const renderedBuffer = await offlineCtx.startRendering();
+      
+      // WAVエンコード
+      const wavBuffer = encodeWav(renderedBuffer);
+      return new Blob([wavBuffer], { type: 'audio/wav' });
+    }
+    
+    // WAVエンコーダー
+    function encodeWav(audioBuffer) {
+      const numChannels = 1;
+      const sampleRate = audioBuffer.sampleRate;
+      const format = 1; // PCM
+      const bitDepth = 16;
+      
+      const samples = audioBuffer.getChannelData(0);
+      const buffer = new ArrayBuffer(44 + samples.length * 2);
+      const view = new DataView(buffer);
+      
+      // WAVヘッダー
+      writeString(view, 0, 'RIFF');
+      view.setUint32(4, 36 + samples.length * 2, true);
+      writeString(view, 8, 'WAVE');
+      writeString(view, 12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, format, true);
+      view.setUint16(22, numChannels, true);
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * numChannels * bitDepth / 8, true);
+      view.setUint16(32, numChannels * bitDepth / 8, true);
+      view.setUint16(34, bitDepth, true);
+      writeString(view, 36, 'data');
+      view.setUint32(40, samples.length * 2, true);
+      
+      // サンプルデータ（float32 → int16）
+      let offset = 44;
+      for (let i = 0; i < samples.length; i++) {
+        const s = Math.max(-1, Math.min(1, samples[i]));
+        view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+        offset += 2;
+      }
+      
+      return buffer;
+    }
+    
+    function writeString(view, offset, string) {
+      for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i));
+      }
+    }
+    
+    // 結果サマリー更新
+    function updateResultSummary(success, sampleRate, duration, error = null) {
+      const summary = document.getElementById('result-summary');
+      if (success) {
+        summary.innerHTML = `
+          <p class="success">✅ Web Audio API録音: 成功</p>
+          <p>サンプルレート: ${sampleRate} Hz ${sampleRate === 16000 ? '(目標通り)' : '(目標と異なる)'}</p>
+          <p>録音時間: ${duration}秒</p>
+          <p>WAV変換: 成功（Azure STTに送信可能な形式）</p>
+          <p><strong>判定: ✅ Go</strong></p>
+        `;
+      } else {
+        summary.innerHTML = `
+          <p class="error">❌ エラーが発生しました</p>
+          <p>${error}</p>
+          <p><strong>判定: 🔴 No-Go（要調査）</strong></p>
+        `;
+      }
+    }
+  </script>
+</body>
+</html>
+

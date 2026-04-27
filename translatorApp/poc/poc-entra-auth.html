@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>POC-6: Microsoft Entra ID認証検証</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      font-family: 'Segoe UI', 'Hiragino Sans', sans-serif;
+      padding: 20px;
+      max-width: 900px;
+      margin: 0 auto;
+      background: linear-gradient(135deg, #0078d4 0%, #00bcf2 100%);
+      min-height: 100vh;
+    }
+    .container {
+      background: white;
+      border-radius: 16px;
+      padding: 30px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    h1 {
+      margin-top: 0;
+      color: #4a5568;
+      font-size: 1.8rem;
+    }
+    h2 {
+      color: #0078d4;
+      font-size: 1.2rem;
+      margin-top: 25px;
+    }
+    .config-section {
+      background: #f7fafc;
+      padding: 20px;
+      border-radius: 8px;
+      margin: 20px 0;
+    }
+    .config-section label {
+      display: block;
+      margin: 10px 0 5px;
+      font-weight: bold;
+      color: #4a5568;
+    }
+    .config-section input {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    .config-section input:focus {
+      outline: none;
+      border-color: #0078d4;
+      box-shadow: 0 0 0 3px rgba(0, 120, 212, 0.1);
+    }
+    button {
+      padding: 15px 30px;
+      font-size: 16px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-weight: bold;
+      margin: 5px;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    #login-btn {
+      background: linear-gradient(135deg, #0078d4 0%, #00bcf2 100%);
+      color: white;
+    }
+    #logout-btn {
+      background: linear-gradient(135deg, #4a5568 0%, #2d3748 100%);
+      color: white;
+    }
+    #call-api-btn {
+      background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+      color: white;
+    }
+    button:not(:disabled):hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+    #result {
+      background: #1a1a2e;
+      color: #0f0;
+      padding: 20px;
+      font-family: 'Consolas', 'Monaco', monospace;
+      border-radius: 8px;
+      margin: 20px 0;
+      min-height: 150px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .user-info {
+      background: #e6fffa;
+      padding: 20px;
+      border-radius: 8px;
+      margin: 20px 0;
+      border-left: 4px solid #38b2ac;
+    }
+    .user-info h3 {
+      margin-top: 0;
+      color: #234e52;
+    }
+    .warning {
+      background: #fffbeb;
+      border: 2px solid #f59e0b;
+      padding: 15px;
+      border-radius: 8px;
+      margin-top: 20px;
+    }
+    .warning h4 {
+      margin: 0 0 10px 0;
+      color: #d97706;
+    }
+    .setup-steps {
+      background: #f0fff4;
+      padding: 20px;
+      border-radius: 8px;
+      margin: 20px 0;
+    }
+    .setup-steps ol {
+      margin: 0;
+      padding-left: 20px;
+      line-height: 1.8;
+    }
+    .setup-steps code {
+      background: #e2e8f0;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    .result-section {
+      margin-top: 30px;
+      padding: 20px;
+      background: #f0fff4;
+      border-radius: 12px;
+      border: 2px solid #48bb78;
+    }
+    .result-section h3 {
+      margin-top: 0;
+      color: #2f855a;
+    }
+    .result-item {
+      display: flex;
+      align-items: center;
+      margin: 10px 0;
+      padding: 10px;
+      background: white;
+      border-radius: 8px;
+    }
+    .result-item input[type="checkbox"] {
+      width: 20px;
+      height: 20px;
+      margin-right: 15px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔐 POC-6: Microsoft Entra ID認証検証</h1>
+    
+    <h2>📋 事前準備</h2>
+    <div class="setup-steps">
+      <ol>
+        <li><strong>Azure Portal</strong> → <code>App registrations</code> → 新規登録</li>
+        <li>名前: <code>TranslatorApp-POC</code></li>
+        <li>サポートされているアカウントの種類: <code>この組織ディレクトリ内のアカウントのみ</code></li>
+        <li>リダイレクトURI: <code>Single-page application (SPA)</code> → <code>http://localhost:5500</code></li>
+        <li>登録後、<code>アプリケーション (クライアント) ID</code> と <code>ディレクトリ (テナント) ID</code> をコピー</li>
+        <li>認証 → 暗黙的な許可およびハイブリッドフロー → <code>IDトークン</code> にチェック</li>
+      </ol>
+    </div>
+    
+    <h2>⚙️ 設定</h2>
+    <div class="config-section">
+      <label for="client-id">クライアントID (Application ID)</label>
+      <input type="text" id="client-id" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+      
+      <label for="tenant-id">テナントID (Directory ID)</label>
+      <input type="text" id="tenant-id" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+      
+      <label for="redirect-uri">リダイレクトURI</label>
+      <input type="text" id="redirect-uri" value="http://localhost:5500">
+    </div>
+    
+    <h2>🔑 認証テスト</h2>
+    <div>
+      <button id="login-btn">🔓 サインイン</button>
+      <button id="logout-btn" disabled>🔒 サインアウト</button>
+      <button id="call-api-btn" disabled>📡 Graph APIテスト</button>
+    </div>
+    
+    <div id="user-info-section" class="user-info" style="display:none;">
+      <h3>👤 ログインユーザー情報</h3>
+      <div id="user-info"></div>
+    </div>
+    
+    <h2>📊 結果ログ</h2>
+    <div id="result">認証テストを実行してください...</div>
+    
+    <div class="result-section">
+      <h3>✅ 検証結果チェックリスト</h3>
+      <div class="result-item">
+        <input type="checkbox" id="check1">
+        <label for="check1">Microsoftログイン画面が表示された</label>
+      </div>
+      <div class="result-item">
+        <input type="checkbox" id="check2">
+        <label for="check2">ログイン後、ユーザー情報が取得できた</label>
+      </div>
+      <div class="result-item">
+        <input type="checkbox" id="check3">
+        <label for="check3">アクセストークンが取得できた</label>
+      </div>
+      <div class="result-item">
+        <input type="checkbox" id="check4">
+        <label for="check4">Graph APIでプロフィール取得できた（オプション）</label>
+      </div>
+    </div>
+    
+    <div class="warning">
+      <h4>⚠️ 注意事項</h4>
+      <ul>
+        <li>このPOCを実行するには、ローカルサーバーが必要です</li>
+        <li>VS Code Live Server拡張機能（ポート5500）を使用するか、<code>python -m http.server 5500</code> を実行</li>
+        <li>Azure App登録で設定したリダイレクトURIと一致する必要があります</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- MSAL.js v2 -->
+  <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
+  
+  <script>
+    let msalInstance = null;
+    let currentAccount = null;
+    
+    const resultDiv = document.getElementById('result');
+    
+    function log(message, isError = false) {
+      const time = new Date().toISOString().split('T')[1].split('.')[0];
+      const prefix = isError ? '❌' : '✅';
+      resultDiv.textContent += `[${time}] ${prefix} ${message}\n`;
+      resultDiv.scrollTop = resultDiv.scrollHeight;
+    }
+    
+    function clearLog() {
+      resultDiv.textContent = '';
+    }
+    
+    // MSAL設定を初期化
+    function initializeMsal() {
+      const clientId = document.getElementById('client-id').value.trim();
+      const tenantId = document.getElementById('tenant-id').value.trim();
+      const redirectUri = document.getElementById('redirect-uri').value.trim();
+      
+      if (!clientId || !tenantId) {
+        log('クライアントIDとテナントIDを入力してください', true);
+        return false;
+      }
+      
+      const msalConfig = {
+        auth: {
+          clientId: clientId,
+          authority: `https://login.microsoftonline.com/${tenantId}`,
+          redirectUri: redirectUri,
+        },
+        cache: {
+          cacheLocation: 'sessionStorage',
+          storeAuthStateInCookie: false,
+        },
+        system: {
+          loggerOptions: {
+            loggerCallback: (level, message, containsPii) => {
+              if (!containsPii) {
+                console.log(`MSAL [${level}]: ${message}`);
+              }
+            },
+            logLevel: 'Info',
+          },
+        },
+      };
+      
+      try {
+        msalInstance = new msal.PublicClientApplication(msalConfig);
+        log(`MSAL初期化成功`);
+        log(`Authority: ${msalConfig.auth.authority}`);
+        log(`Redirect URI: ${msalConfig.auth.redirectUri}`);
+        return true;
+      } catch (err) {
+        log(`MSAL初期化エラー: ${err.message}`, true);
+        return false;
+      }
+    }
+    
+    // サインイン
+    document.getElementById('login-btn').addEventListener('click', async () => {
+      clearLog();
+      
+      if (!initializeMsal()) return;
+      
+      const loginRequest = {
+        scopes: ['openid', 'profile', 'email', 'User.Read'],
+      };
+      
+      try {
+        log('ポップアップでサインイン画面を表示中...');
+        const response = await msalInstance.loginPopup(loginRequest);
+        
+        log('サインイン成功!');
+        log(`アカウント: ${response.account.username}`);
+        log(`名前: ${response.account.name}`);
+        log(`テナント: ${response.account.tenantId}`);
+        log(`アクセストークン: ${response.accessToken.substring(0, 50)}...`);
+        log(`IDトークン: ${response.idToken.substring(0, 50)}...`);
+        log(`スコープ: ${response.scopes.join(', ')}`);
+        
+        currentAccount = response.account;
+        
+        // ユーザー情報表示
+        const userInfoSection = document.getElementById('user-info-section');
+        const userInfo = document.getElementById('user-info');
+        userInfoSection.style.display = 'block';
+        userInfo.innerHTML = `
+          <p><strong>メール:</strong> ${response.account.username}</p>
+          <p><strong>名前:</strong> ${response.account.name}</p>
+          <p><strong>テナントID:</strong> ${response.account.tenantId}</p>
+          <p><strong>ホームアカウントID:</strong> ${response.account.homeAccountId}</p>
+        `;
+        
+        // ボタン状態更新
+        document.getElementById('login-btn').disabled = true;
+        document.getElementById('logout-btn').disabled = false;
+        document.getElementById('call-api-btn').disabled = false;
+        
+        // チェックボックス自動チェック
+        document.getElementById('check1').checked = true;
+        document.getElementById('check2').checked = true;
+        document.getElementById('check3').checked = true;
+        
+      } catch (err) {
+        log(`サインインエラー: ${err.message}`, true);
+        if (err.errorCode) {
+          log(`エラーコード: ${err.errorCode}`, true);
+        }
+      }
+    });
+    
+    // サインアウト
+    document.getElementById('logout-btn').addEventListener('click', async () => {
+      if (!msalInstance) return;
+      
+      try {
+        await msalInstance.logoutPopup({
+          postLogoutRedirectUri: window.location.href,
+          mainWindowRedirectUri: window.location.href,
+        });
+        
+        log('サインアウト成功');
+        
+        currentAccount = null;
+        document.getElementById('user-info-section').style.display = 'none';
+        document.getElementById('login-btn').disabled = false;
+        document.getElementById('logout-btn').disabled = true;
+        document.getElementById('call-api-btn').disabled = true;
+        
+      } catch (err) {
+        log(`サインアウトエラー: ${err.message}`, true);
+      }
+    });
+    
+    // Graph API呼び出し
+    document.getElementById('call-api-btn').addEventListener('click', async () => {
+      if (!msalInstance || !currentAccount) {
+        log('先にサインインしてください', true);
+        return;
+      }
+      
+      try {
+        log('アクセストークンを取得中...');
+        
+        const tokenRequest = {
+          scopes: ['User.Read'],
+          account: currentAccount,
+        };
+        
+        const tokenResponse = await msalInstance.acquireTokenSilent(tokenRequest);
+        log(`トークン取得成功 (有効期限: ${new Date(tokenResponse.expiresOn).toLocaleTimeString()})`);
+        
+        log('Microsoft Graph API呼び出し中...');
+        
+        const response = await fetch('https://graph.microsoft.com/v1.0/me', {
+          headers: {
+            'Authorization': `Bearer ${tokenResponse.accessToken}`,
+          },
+        });
+        
+        if (response.ok) {
+          const profile = await response.json();
+          log('Graph API呼び出し成功!');
+          log(`表示名: ${profile.displayName}`);
+          log(`メール: ${profile.mail || profile.userPrincipalName}`);
+          log(`ジョブタイトル: ${profile.jobTitle || '(未設定)'}`);
+          log(`オフィス: ${profile.officeLocation || '(未設定)'}`);
+          
+          document.getElementById('check4').checked = true;
+        } else {
+          log(`Graph APIエラー: ${response.status} ${response.statusText}`, true);
+        }
+        
+      } catch (err) {
+        log(`エラー: ${err.message}`, true);
+        
+        // サイレント取得失敗時はポップアップで再取得
+        if (err.name === 'InteractionRequiredAuthError') {
+          log('対話型認証が必要です。再度サインインしてください。', true);
+        }
+      }
+    });
+    
+    // ページ読み込み時にリダイレクト処理をチェック
+    window.addEventListener('load', async () => {
+      log('POC-6: Microsoft Entra ID認証検証');
+      log('');
+      log('📋 手順:');
+      log('1. クライアントIDとテナントIDを入力');
+      log('2. 「サインイン」ボタンをクリック');
+      log('3. Microsoftアカウントでログイン');
+      log('4. 認証成功後「Graph APIテスト」で追加確認');
+      log('');
+    });
+  </script>
+</body>
+</html>
+
